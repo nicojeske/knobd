@@ -9,6 +9,11 @@ constraint, not just a default.
 cmd/knobd/          main.go — flag parsing, config load, logging, signal
                      handling. Does not start MIDI/audio/focus/engine/api
                      yet — those are still scaffolding (see below).
+cmd/schemagen/       regenerates docs/config.schema.json (`make schema`).
+                     A separate binary from knobd so its dependency
+                     (github.com/invopop/jsonschema) never links into the
+                     daemon that actually ships — see
+                     ../specs/adr/0005-schema-generation-via-invopop.md.
 internal/
   model/             domain types: Control, Gesture, Target, AppMatcher,
                       Action (tagged union), Binding, Config. Fully
@@ -16,6 +21,9 @@ internal/
                       everything else is built around.
   config/            load/save/migrate ~/.config/knobd/config.json.
                       Fully implemented and tested.
+  schema/            generates the JSON Schema for model.Config that
+                      cmd/schemagen writes out; the model package itself
+                      stays dependency-free.
   midi/              Port interface + FakePort. Real rawmidi backend and
                       device discovery: TODO(M02).
   device/            Codec interface for the X-Touch Mini's MIDI
@@ -48,3 +56,8 @@ go build ./... && go vet ./... && go test ./...
 ```
 
 or from the repo root: `make build`, `make test`, `make lint`.
+
+After changing anything under `internal/model` that affects the config's
+JSON shape, regenerate the schema: `make schema` (from the repo root),
+then commit the updated `docs/config.schema.json` — CI fails if it's
+stale.

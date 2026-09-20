@@ -50,3 +50,29 @@ func TestControlKindSupportsGesture(t *testing.T) {
 		t.Error("fader should not support any gesture yet")
 	}
 }
+
+// TestControlKindsComplete guards against ControlKinds() silently
+// falling out of sync with the kinds Control.Validate actually accepts
+// (schema generation trusts ControlKinds() as the full enum).
+func TestControlKindsComplete(t *testing.T) {
+	for _, k := range ControlKinds() {
+		if err := (Control{Kind: k, Index: 1}).Validate(); err != nil && k != ControlFader {
+			t.Errorf("Control{Kind: %q, Index: 1}.Validate() = %v, want nil", k, err)
+		}
+	}
+	if err := (Control{Kind: ControlKind("bogus"), Index: 1}).Validate(); err == nil {
+		t.Error("a kind absent from ControlKinds() should fail Validate")
+	}
+}
+
+// TestGesturesComplete guards ditto for Gestures() against
+// ControlKind.SupportsGesture.
+func TestGesturesComplete(t *testing.T) {
+	gestures := Gestures()
+	if len(gestures) != 5 {
+		t.Fatalf("Gestures() returned %d gestures, want 5 (update this test if the set changed intentionally)", len(gestures))
+	}
+	if ControlButton.SupportsGesture(Gesture("bogus")) {
+		t.Error("a gesture absent from Gestures() should not be supported by any control kind")
+	}
+}

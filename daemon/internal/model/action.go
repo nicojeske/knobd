@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // ActionType identifies which action family a Binding fires. This is a
@@ -201,6 +202,14 @@ const (
 	MediaRepeatCycle   MediaCommand = "repeat_cycle"
 )
 
+// MediaCommands returns every valid MediaCommand, for validation and for
+// daemon/internal/schema's enum generation.
+func MediaCommands() []MediaCommand {
+	return []MediaCommand{
+		MediaPlayPause, MediaNext, MediaPrevious, MediaShuffleToggle, MediaRepeatCycle,
+	}
+}
+
 // MediaTransportAction sends one MPRIS transport command to PlayerRef
 // (an MPRIS bus name suffix, e.g. "spotify"), or to whichever player is
 // currently selected if PlayerRef is empty.
@@ -252,32 +261,50 @@ type ShellRunAction struct {
 
 func (ShellRunAction) ActionType() ActionType { return ActionShellRun }
 
-// actionRegistry maps each ActionType to a decoder for its params. Every
-// concrete Action type must be registered here for Binding's JSON
-// (de)serialization (see binding.go) and for model_test.go's
+// actionEntry pairs an ActionType's JSON decoder with its zero value.
+// The zero value carries no behavior on its own — decodeInto's T is what
+// actually gets decoded into — but exposing it (via ZeroAction) gives
+// daemon/internal/schema a concrete reflect.Type to generate a JSON
+// Schema branch from, which a bare decoder closure (T erased) cannot.
+type actionEntry struct {
+	decode func(json.RawMessage) (Action, error)
+	zero   Action
+}
+
+// newActionEntry builds an actionEntry for T. T must be one of the
+// concrete action-params types below (i.e. implement Action on its
+// value receiver).
+func newActionEntry[T Action]() actionEntry {
+	var zero T
+	return actionEntry{decode: decodeInto[T], zero: zero}
+}
+
+// actionRegistry maps each ActionType to its decoder and zero value.
+// Every concrete Action type must be registered here for Binding's JSON
+// (de)serialization (see binding.go) and for action_test.go's
 // completeness check, which fails the build if a new ActionType constant
 // is added above without a matching registry entry.
-var actionRegistry = map[ActionType]func(json.RawMessage) (Action, error){
-	ActionVolumeAdjust:         decodeInto[VolumeAdjustAction],
-	ActionVolumeSet:            decodeInto[VolumeSetAction],
-	ActionVolumeMuteToggle:     decodeInto[VolumeMuteToggleAction],
-	ActionVolumeBalance:        decodeInto[VolumeBalanceAction],
-	ActionAudioSoloToggle:      decodeInto[AudioSoloToggleAction],
-	ActionAudioDuckHold:        decodeInto[AudioDuckHoldAction],
-	ActionSceneApply:           decodeInto[SceneApplyAction],
-	ActionSceneSave:            decodeInto[SceneSaveAction],
-	ActionLayerMomentary:       decodeInto[LayerMomentaryAction],
-	ActionLayerLatch:           decodeInto[LayerLatchAction],
-	ActionLayerCycle:           decodeInto[LayerCycleAction],
-	ActionKnobAssignFocusedApp: decodeInto[KnobAssignFocusedAppAction],
-	ActionKnobClear:            decodeInto[KnobClearAction],
-	ActionKnobLockToggle:       decodeInto[KnobLockToggleAction],
-	ActionMediaTransport:       decodeInto[MediaTransportAction],
-	ActionMediaSeek:            decodeInto[MediaSeekAction],
-	ActionSinkCycleDefault:     decodeInto[SinkCycleDefaultAction],
-	ActionMicPushToTalk:        decodeInto[MicPushToTalkAction],
-	ActionMicPushToMute:        decodeInto[MicPushToMuteAction],
-	ActionShellRun:             decodeInto[ShellRunAction],
+var actionRegistry = map[ActionType]actionEntry{
+	ActionVolumeAdjust:         newActionEntry[VolumeAdjustAction](),
+	ActionVolumeSet:            newActionEntry[VolumeSetAction](),
+	ActionVolumeMuteToggle:     newActionEntry[VolumeMuteToggleAction](),
+	ActionVolumeBalance:        newActionEntry[VolumeBalanceAction](),
+	ActionAudioSoloToggle:      newActionEntry[AudioSoloToggleAction](),
+	ActionAudioDuckHold:        newActionEntry[AudioDuckHoldAction](),
+	ActionSceneApply:           newActionEntry[SceneApplyAction](),
+	ActionSceneSave:            newActionEntry[SceneSaveAction](),
+	ActionLayerMomentary:       newActionEntry[LayerMomentaryAction](),
+	ActionLayerLatch:           newActionEntry[LayerLatchAction](),
+	ActionLayerCycle:           newActionEntry[LayerCycleAction](),
+	ActionKnobAssignFocusedApp: newActionEntry[KnobAssignFocusedAppAction](),
+	ActionKnobClear:            newActionEntry[KnobClearAction](),
+	ActionKnobLockToggle:       newActionEntry[KnobLockToggleAction](),
+	ActionMediaTransport:       newActionEntry[MediaTransportAction](),
+	ActionMediaSeek:            newActionEntry[MediaSeekAction](),
+	ActionSinkCycleDefault:     newActionEntry[SinkCycleDefaultAction](),
+	ActionMicPushToTalk:        newActionEntry[MicPushToTalkAction](),
+	ActionMicPushToMute:        newActionEntry[MicPushToMuteAction](),
+	ActionShellRun:             newActionEntry[ShellRunAction](),
 }
 
 // decodeInto unmarshals raw into a zero-value T and returns it as an
@@ -293,6 +320,30 @@ func decodeInto[T Action](raw json.RawMessage) (Action, error) {
 	return v, nil
 }
 
+// ActionTypes returns every registered ActionType, sorted, so callers
+// (notably daemon/internal/schema) get a deterministic order regardless
+// of map iteration.
+func ActionTypes() []ActionType {
+	types := make([]ActionType, 0, len(actionRegistry))
+	for t := range actionRegistry {
+		types = append(types, t)
+	}
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
+	return types
+}
+
+// ZeroAction returns the zero value of the concrete Action type
+// registered for t, for callers that need a reflect.Type to introspect
+// (see daemon/internal/schema) rather than a decoded value. ok is false
+// if t is not registered.
+func ZeroAction(t ActionType) (action Action, ok bool) {
+	entry, ok := actionRegistry[t]
+	if !ok {
+		return nil, false
+	}
+	return entry.zero, true
+}
+
 // DecodeAction decodes a {"type": ..., "params": {...}} document into
 // the concrete Action it names.
 func DecodeAction(data []byte) (Action, error) {
@@ -303,11 +354,11 @@ func DecodeAction(data []byte) (Action, error) {
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return nil, fmt.Errorf("model: decode action envelope: %w", err)
 	}
-	factory, ok := actionRegistry[envelope.Type]
+	entry, ok := actionRegistry[envelope.Type]
 	if !ok {
 		return nil, fmt.Errorf("model: unknown action type %q", envelope.Type)
 	}
-	action, err := factory(envelope.Params)
+	action, err := entry.decode(envelope.Params)
 	if err != nil {
 		return nil, fmt.Errorf("model: decode action %q: %w", envelope.Type, err)
 	}

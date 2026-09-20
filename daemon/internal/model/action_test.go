@@ -30,6 +30,47 @@ func TestActionRegistryComplete(t *testing.T) {
 	}
 }
 
+// TestActionTypesSortedAndComplete guards ActionTypes() and ZeroAction(),
+// which daemon/internal/schema relies on to enumerate and reflect over
+// every registered action.
+func TestActionTypesSortedAndComplete(t *testing.T) {
+	types := ActionTypes()
+	if len(types) != len(actionRegistry) {
+		t.Fatalf("ActionTypes() returned %d types, actionRegistry has %d", len(types), len(actionRegistry))
+	}
+	for i := 1; i < len(types); i++ {
+		if types[i-1] >= types[i] {
+			t.Fatalf("ActionTypes() not strictly sorted: %q before %q", types[i-1], types[i])
+		}
+	}
+	for _, at := range types {
+		zero, ok := ZeroAction(at)
+		if !ok {
+			t.Errorf("ZeroAction(%q) ok = false, want true", at)
+			continue
+		}
+		if zero.ActionType() != at {
+			t.Errorf("ZeroAction(%q).ActionType() = %q", at, zero.ActionType())
+		}
+	}
+	if _, ok := ZeroAction(ActionType("nonexistent.action")); ok {
+		t.Error("ZeroAction of an unregistered type should return ok = false")
+	}
+}
+
+func TestMediaCommandsComplete(t *testing.T) {
+	want := []MediaCommand{MediaPlayPause, MediaNext, MediaPrevious, MediaShuffleToggle, MediaRepeatCycle}
+	got := MediaCommands()
+	if len(got) != len(want) {
+		t.Fatalf("MediaCommands() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("MediaCommands()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestEncodeDecodeActionRoundTrip(t *testing.T) {
 	actions := []Action{
 		VolumeAdjustAction{Target: Target{Kind: TargetFocused}, StepPercent: 2},

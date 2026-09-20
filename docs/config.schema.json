@@ -1,0 +1,828 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Action": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "audio.duck_hold"
+            },
+            "params": {
+              "$ref": "#/$defs/AudioDuckHoldAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "audio.solo_toggle"
+            },
+            "params": {
+              "$ref": "#/$defs/AudioSoloToggleAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "knob.assign_focused_app"
+            },
+            "params": {
+              "$ref": "#/$defs/KnobAssignFocusedAppAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "knob.clear"
+            },
+            "params": {
+              "$ref": "#/$defs/KnobClearAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "knob.lock_toggle"
+            },
+            "params": {
+              "$ref": "#/$defs/KnobLockToggleAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "layer.cycle"
+            },
+            "params": {
+              "$ref": "#/$defs/LayerCycleAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "layer.latch"
+            },
+            "params": {
+              "$ref": "#/$defs/LayerLatchAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "layer.momentary"
+            },
+            "params": {
+              "$ref": "#/$defs/LayerMomentaryAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "media.seek"
+            },
+            "params": {
+              "$ref": "#/$defs/MediaSeekAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "media.transport"
+            },
+            "params": {
+              "$ref": "#/$defs/MediaTransportAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "mic.push_to_mute"
+            },
+            "params": {
+              "$ref": "#/$defs/MicPushToMuteAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "mic.push_to_talk"
+            },
+            "params": {
+              "$ref": "#/$defs/MicPushToTalkAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "scene.apply"
+            },
+            "params": {
+              "$ref": "#/$defs/SceneApplyAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "scene.save"
+            },
+            "params": {
+              "$ref": "#/$defs/SceneSaveAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "shell.run"
+            },
+            "params": {
+              "$ref": "#/$defs/ShellRunAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "sink.cycle_default"
+            },
+            "params": {
+              "$ref": "#/$defs/SinkCycleDefaultAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "volume.adjust"
+            },
+            "params": {
+              "$ref": "#/$defs/VolumeAdjustAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "volume.balance"
+            },
+            "params": {
+              "$ref": "#/$defs/VolumeBalanceAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "volume.mute_toggle"
+            },
+            "params": {
+              "$ref": "#/$defs/VolumeMuteToggleAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "volume.set"
+            },
+            "params": {
+              "$ref": "#/$defs/VolumeSetAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        }
+      ]
+    },
+    "AppGroup": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "matcherIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "matcherIds"
+      ]
+    },
+    "AppMatcher": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "binaries": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "appNames": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nodeNames": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "desktopIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mediaNameRx": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "displayName"
+      ]
+    },
+    "AudioDuckHoldAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "duckPercent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target",
+        "duckPercent"
+      ]
+    },
+    "AudioSoloToggleAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target"
+      ]
+    },
+    "Binding": {
+      "properties": {
+        "layer": {
+          "type": "integer"
+        },
+        "control": {
+          "$ref": "#/$defs/Control"
+        },
+        "gesture": {
+          "type": "string",
+          "enum": [
+            "turn",
+            "press",
+            "hold",
+            "release",
+            "double_press"
+          ]
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "layer",
+        "control",
+        "gesture",
+        "action"
+      ]
+    },
+    "Control": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "encoder",
+            "encoder_push",
+            "button",
+            "side_button",
+            "fader"
+          ]
+        },
+        "index": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind",
+        "index"
+      ]
+    },
+    "KnobAssignFocusedAppAction": {
+      "properties": {
+        "stepPercent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "KnobClearAction": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "KnobLockToggleAction": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "LayerCycleAction": {
+      "properties": {
+        "layerOrder": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "LayerLatchAction": {
+      "properties": {
+        "layer": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "layer"
+      ]
+    },
+    "LayerMomentaryAction": {
+      "properties": {
+        "layer": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "layer"
+      ]
+    },
+    "MediaSeekAction": {
+      "properties": {
+        "seekMs": {
+          "type": "integer"
+        },
+        "playerRef": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "seekMs"
+      ]
+    },
+    "MediaTransportAction": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "enum": [
+            "play_pause",
+            "next",
+            "previous",
+            "shuffle_toggle",
+            "repeat_cycle"
+          ]
+        },
+        "playerRef": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
+    "MicPushToMuteAction": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MicPushToTalkAction": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Profile": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/Binding"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "bindings"
+      ]
+    },
+    "Scene": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/SceneEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "entries"
+      ]
+    },
+    "SceneApplyAction": {
+      "properties": {
+        "sceneId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sceneId"
+      ]
+    },
+    "SceneEntry": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "volumePercent": {
+          "type": "number"
+        },
+        "muted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target",
+        "volumePercent",
+        "muted"
+      ]
+    },
+    "SceneSaveAction": {
+      "properties": {
+        "sceneId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sceneId"
+      ]
+    },
+    "ShellRunAction": {
+      "properties": {
+        "command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
+    "SinkCycleDefaultAction": {
+      "properties": {
+        "sinkNames": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sinkNames"
+      ]
+    },
+    "Target": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "default_sink",
+            "sink",
+            "default_source",
+            "source",
+            "app",
+            "group",
+            "focused",
+            "all_streams"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "VolumeAdjustAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "stepPercent": {
+          "type": "number"
+        },
+        "curveExponent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target",
+        "stepPercent"
+      ]
+    },
+    "VolumeBalanceAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "step": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target",
+        "step"
+      ]
+    },
+    "VolumeMuteToggleAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target"
+      ]
+    },
+    "VolumeSetAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "percent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target",
+        "percent"
+      ]
+    }
+  },
+  "properties": {
+    "schemaVersion": {
+      "type": "integer"
+    },
+    "activeProfileId": {
+      "type": "string"
+    },
+    "profiles": {
+      "items": {
+        "$ref": "#/$defs/Profile"
+      },
+      "type": "array"
+    },
+    "appMatchers": {
+      "items": {
+        "$ref": "#/$defs/AppMatcher"
+      },
+      "type": "array"
+    },
+    "appGroups": {
+      "items": {
+        "$ref": "#/$defs/AppGroup"
+      },
+      "type": "array"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/Scene"
+      },
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "activeProfileId",
+    "profiles",
+    "appMatchers",
+    "appGroups",
+    "scenes"
+  ],
+  "title": "Config",
+  "description": "knobd's on-disk configuration (~/.config/knobd/config.json). See daemon/internal/model.Config."
+}

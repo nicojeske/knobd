@@ -37,7 +37,8 @@ work completes rather than letting the spec drift from reality.
 - **Config** (`~/.config/knobd/config.json`) is versioned with a
   `schemaVersion` field. Any change to `daemon/internal/model` that
   affects the JSON shape needs a migration in `daemon/internal/config`
-  and a bump to `docs/config.schema.json`.
+  and a regenerated `docs/config.schema.json` (`make schema`, gated in
+  CI — see `docs/README.md`).
 - **Commits**: one milestone (or a clearly-scoped slice of one) per
   logical change. Reference the milestone id (`M04`, etc.) in the
   message when applicable.
@@ -46,10 +47,10 @@ work completes rather than letting the spec drift from reality.
 
 Every hardware-facing package is built behind an interface with a fake
 implementation for tests (`midi.FakePort`, `audio.FakeBackend`,
-`focus.FakeProvider` — see each package's `doc.go`). Real end-to-end
-verification against the physical X-Touch Mini and a live PipeWire
-session should still happen before a milestone is marked done; the specs
-say what to check by hand.
+`focus.FakeProvider` — see each package's own doc comment, at the top of
+its primary file). Real end-to-end verification against the physical
+X-Touch Mini and a live PipeWire session should still happen before a
+milestone is marked done; the specs say what to check by hand.
 
 ## Environment this was developed on
 

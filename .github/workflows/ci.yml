@@ -24,6 +24,10 @@ jobs:
         run: cd daemon && go test ./...
       - name: go build
         run: cd daemon && go build ./...
+      - name: schema up to date
+        run: |
+          cd daemon && go run ./cmd/schemagen -o ../docs/config.schema.json
+          cd .. && git diff --exit-code -- docs/config.schema.json
 
   ui:
     name: ui (TypeScript)
@@ -36,6 +40,10 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: cd ui && npm ci
+      - name: generated types up to date
+        run: |
+          cd ui && npm run codegen
+          cd .. && git diff --exit-code -- ui/src/types/config.ts
       - name: typecheck
         run: cd ui && npm run typecheck
       - name: build (Vite only — Tauri/Rust build is out of scope until M07)

@@ -38,6 +38,15 @@ const (
 	TargetAllStreams TargetKind = "all_streams"
 )
 
+// TargetKinds returns every valid TargetKind, for validation and for
+// daemon/internal/schema's enum generation.
+func TargetKinds() []TargetKind {
+	return []TargetKind{
+		TargetDefaultSink, TargetSink, TargetDefaultSource, TargetSource,
+		TargetApp, TargetGroup, TargetFocused, TargetAllStreams,
+	}
+}
+
 // Target names what an Action operates on. Ref's meaning depends on
 // Kind: empty for DefaultSink/DefaultSource/Focused/AllStreams, a
 // PipeWire node.name for Sink/Source, and an AppMatcher.ID or

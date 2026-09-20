@@ -31,6 +31,12 @@ const (
 	ControlFader ControlKind = "fader"
 )
 
+// ControlKinds returns every valid ControlKind, for validation and for
+// daemon/internal/schema's enum generation.
+func ControlKinds() []ControlKind {
+	return []ControlKind{ControlEncoder, ControlEncoderPush, ControlButton, ControlSideButton, ControlFader}
+}
+
 // Control identifies one physical control on the device.
 //
 // Index is 1-based and matches the labels printed on the hardware:
@@ -90,6 +96,12 @@ const (
 	// presses land inside the double-press window.
 	GestureDoublePress Gesture = "double_press"
 )
+
+// Gestures returns every valid Gesture, for validation and for
+// daemon/internal/schema's enum generation.
+func Gestures() []Gesture {
+	return []Gesture{GestureTurn, GesturePress, GestureHold, GestureRelease, GestureDoublePress}
+}
 
 // SupportsGesture reports whether a gesture is meaningful for a control
 // kind. The fader currently only ever produces absolute position updates

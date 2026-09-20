@@ -29,9 +29,10 @@ controller's layout (from `specs/reference/xtouch-mini-midi-map.md`),
 click-to-bind, MIDI learn (listen for the next controller event and use
 it as the selection instead of a click), live state display over
 WebSocket, app/group pickers backed by `GET /streams`-equivalent live
-data, profile management, replacing `ui/src/types/config.ts`'s
-hand-written mirror with generated types from `docs/config.schema.json`/
-`docs/openapi.json`.
+data, profile management, and a TypeScript client generated from
+`docs/openapi.json` once `daemon/internal/api` has real routes
+(`ui/src/types/config.ts` itself is already generated, from
+`docs/config.schema.json` — see M01).
 
 **Out**: anything the daemon itself doesn't support yet — this
 milestone is a client for M04–M06/M08's surface, not a place to sneak in
@@ -48,11 +49,13 @@ implement the underlying Tauri commands in `ui/src-tauri/src/main.rs`
 per `Cargo.toml`'s TODO comment) one method at a time, replacing each
 stub as its daemon-side support exists.
 
-Type generation: once `daemon/internal/api` has real routes and
-`docs/config.schema.json`/`docs/openapi.json` are generated (M01's
-deferred item, M04's routes), regenerate `ui/src/types/config.ts` (or
-replace it with a generated file entirely) rather than continuing to
-hand-maintain it — its own header comment says as much.
+Type generation: `ui/src/types/config.ts` is already generated from
+`docs/config.schema.json` (`npm run codegen`, via `json-schema-to-
+typescript` — see M01 and `specs/adr/0005-schema-generation-via-invopop.md`).
+Once `daemon/internal/api` has real routes and `docs/openapi.json`
+exists (M04's job), generate the API client the same way — evaluate
+`openapi-typescript` or similar against the same pattern rather than
+hand-writing `ui/src/api/client.ts`'s method bodies.
 
 The visual controller panel and MIDI-learn flow are new UI-only work
 with no direct daemon-side dependency beyond the WebSocket state feed
@@ -80,9 +83,8 @@ actual shape here once designed.
       you mean, and the UI selects the right one.
 - [ ] The tray icon's "Configure..." (or equivalent) menu item opens the
       window; closing the window doesn't kill the daemon.
-- [ ] `ui/src/types/config.ts` is generated, not hand-maintained (or
-      explicitly deferred here with a reason, if generation turns out to
-      need more design work than expected).
+- [x] `ui/src/types/config.ts` is generated, not hand-maintained — done
+      in M01, ahead of the rest of this milestone.
 
 ## Verification
 
@@ -96,6 +98,6 @@ daemon and confirm both bindings persisted.
 - Rust/Tauri toolchain setup is untested on this machine as of
   planning — first real risk of this milestone is just getting a Tauri
   window to open at all.
-- Type-generation tooling choice (from JSON Schema/OpenAPI to TS) isn't
-  picked yet — evaluate options (`openapi-typescript`, `json-schema-to-
-  typescript`, etc.) once M01's schema-generation item is actually done.
+- The OpenAPI-to-TS client generator isn't picked yet (config types use
+  `json-schema-to-typescript` already, per M01 — the API client is the
+  remaining piece, and doesn't have to use the same tool).

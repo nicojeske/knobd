@@ -56,14 +56,24 @@ func Load(path string) (model.Config, error) {
 		return model.Config{}, fmt.Errorf("config: read %s: %w", path, err)
 	}
 
-	cfg, err := decode(data)
-	if err != nil {
+	// Decode into a generic document, not model.Config, before
+	// migrating: a version older than CurrentSchemaVersion may have
+	// fields the current model.Config struct has no place for, and
+	// those need to survive into Migrate, not be dropped by decoding
+	// straight into today's shape first.
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return model.Config{}, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 
-	cfg, err = Migrate(cfg)
+	doc, err = Migrate(doc)
 	if err != nil {
 		return model.Config{}, fmt.Errorf("config: migrate %s: %w", path, err)
+	}
+
+	cfg, err := decode(doc)
+	if err != nil {
+		return model.Config{}, fmt.Errorf("config: decode %s after migration: %w", path, err)
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -73,12 +83,14 @@ func Load(path string) (model.Config, error) {
 	return cfg, nil
 }
 
-// decode parses raw JSON into a model.Config, without assuming the
-// SchemaVersion field the current model.Config expects is present —
-// versions older than the very first release could in principle be
-// missing it entirely, in which case it decodes as 0 and Migrate treats
-// that as "version 1", the oldest version this package knows about.
-func decode(data []byte) (model.Config, error) {
+// decode re-marshals a migrated document (already at
+// model.CurrentSchemaVersion, so every field model.Config expects is
+// present under the name it expects) into a model.Config.
+func decode(doc map[string]any) (model.Config, error) {
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return model.Config{}, fmt.Errorf("marshal migrated document: %w", err)
+	}
 	var cfg model.Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return model.Config{}, err

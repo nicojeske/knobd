@@ -18,8 +18,8 @@ src/
   App.tsx         placeholder root component
   api/client.ts   typed client for the daemon API — every method throws
                   "not implemented" until M04/M07 land
-  types/config.ts hand-written mirror of daemon/internal/model's JSON
-                  shape; M07 replaces this with generated types
+  types/config.ts generated from docs/config.schema.json by
+                  `npm run codegen` — do not edit by hand, see M01
 src-tauri/
   src/main.rs     Tauri entry point, no commands registered yet
   tauri.conf.json window + bundle config; icon paths point at files
