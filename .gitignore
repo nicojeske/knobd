@@ -1,0 +1,28 @@
+# Go
+daemon/knobd
+daemon/*.test
+daemon/coverage.out
+/dist/
+
+# Node / Vite
+ui/node_modules/
+ui/dist/
+ui/.vite/
+ui/*.tsbuildinfo
+
+# Tauri / Rust
+ui/src-tauri/target/
+ui/src-tauri/Cargo.lock.bak
+
+# Generated (regenerate via `make schema`)
+docs/config.schema.json
+docs/openapi.json
+
+# Editors / OS
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Local runtime artifacts, never real user config in-repo
+*.local.json

@@ -1,0 +1,13 @@
+# Grants the `audio` group read/write access to the Behringer X-Touch
+# Mini's rawmidi device node. On most distributions (confirmed on the
+# development machine: Arch/CachyOS) /dev/snd/midi* is already
+# group-owned by `audio` with 0660 permissions by udev's built-in rules,
+# and any user in that group already has access — so this rule mainly
+# exists as a documented, explicit fallback for distributions where that
+# default differs, and as a place to hang device-specific behavior later
+# (e.g. a stable symlink) if /dev/snd/by-id ever turns out not to be
+# reliable enough for daemon/internal/midi's device discovery.
+#
+# Vendor:Product 1397:00b3 confirmed via `lsusb` during planning.
+SUBSYSTEM=="usb", ATTR{idVendor}=="1397", ATTR{idProduct}=="00b3", TAG+="uaccess"
+KERNEL=="midi*", SUBSYSTEMS=="usb", ATTRS{idVendor}=="1397", ATTRS{idProduct}=="00b3", GROUP="audio", MODE="0660"

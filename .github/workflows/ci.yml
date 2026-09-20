@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  daemon:
+    name: daemon (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+      - name: gofmt check
+        run: |
+          cd daemon
+          diff <(gofmt -l .) <(echo -n "")
+      - name: go vet
+        run: cd daemon && go vet ./...
+      - name: go test
+        run: cd daemon && go test ./...
+      - name: go build
+        run: cd daemon && go build ./...
+
+  ui:
+    name: ui (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: cd ui && npm ci
+      - name: typecheck
+        run: cd ui && npm run typecheck
+      - name: build (Vite only — Tauri/Rust build is out of scope until M07)
+        run: cd ui && npx vite build

@@ -1,0 +1,91 @@
+[
+  {
+    "id": 57,
+    "props": {
+      "media.class": "Audio/Sink",
+      "node.name": "alsa_output.pci-0000_21_00.0.analog-stereo",
+      "node.description": "Built-in Audio Analog Stereo",
+      "node.nick": "Built-in Audio"
+    }
+  },
+  {
+    "id": 584,
+    "props": {
+      "media.class": "Audio/Sink",
+      "node.name": "alsa_output.usb-Audeze_LLC_Audeze_Maxwell_Dongle_0000000000000000-01.iec958-stereo",
+      "node.description": "Audeze Maxwell Dongle Digital Stereo (IEC958)",
+      "node.nick": "Maxwell Dongle"
+    }
+  },
+  {
+    "id": 53,
+    "props": {
+      "media.class": "Audio/Source",
+      "node.name": "alsa_input.usb-Antlion_Audio_Antlion_Wireless_Microphone-00.mono-fallback",
+      "node.description": "Antlion Wireless Microphone Mono",
+      "node.nick": "Antlion Mic"
+    }
+  },
+  {
+    "id": 112,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "java",
+      "media.name": "Playback Stream",
+      "_comment": "No application.name/process.binary/process.id at all — matcher must fall back to node.name, and to /proc scanning if a pid ever does show up."
+    }
+  },
+  {
+    "id": 118,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "vesktop",
+      "application.name": "vesktop",
+      "application.process.binary": "vesktop",
+      "application.process.id": 3280,
+      "media.name": "Playback"
+    }
+  },
+  {
+    "id": 128,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "vesktop",
+      "application.name": "vesktop",
+      "application.process.binary": "vesktop",
+      "application.process.id": 3280,
+      "media.name": "Playback",
+      "_comment": "Same app as id 118 publishes a second stream (voice + notification sounds) — an AppMatcher for 'vesktop' must resolve to BOTH ids."
+    }
+  },
+  {
+    "id": 132,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "Pal",
+      "application.name": "Pal",
+      "media.name": "Pal"
+    }
+  },
+  {
+    "id": 146,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "Pal",
+      "application.name": "Pal",
+      "media.name": "Pal",
+      "_comment": "Second stream for the same app, again with no process id available at all."
+    }
+  },
+  {
+    "id": 154,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "Brave",
+      "application.name": "Brave",
+      "application.process.binary": "brave",
+      "application.process.id": 4417,
+      "media.name": "Playback"
+    }
+  }
+]

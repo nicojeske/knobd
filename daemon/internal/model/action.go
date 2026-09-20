@@ -1,0 +1,332 @@
+package model
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// ActionType identifies which action family a Binding fires. This is a
+// deliberately open-ended but centrally registered set: adding a new
+// action means adding a constant here, a params struct, an entry in
+// actionRegistry, and — the part that actually does something — a
+// handler in daemon/internal/actions once its milestone starts.
+//
+// The full brainstormed catalog (including actions with no Go type yet)
+// lives in specs/reference/action-catalog.md.
+type ActionType string
+
+const (
+	// -- Volume (specs/milestones/M03-audio-control.md) --
+
+	ActionVolumeAdjust     ActionType = "volume.adjust"
+	ActionVolumeSet        ActionType = "volume.set"
+	ActionVolumeMuteToggle ActionType = "volume.mute_toggle"
+	ActionVolumeBalance    ActionType = "volume.balance"
+
+	// -- Layers, groups, scenes (specs/milestones/M08-layers-groups-scenes.md) --
+
+	ActionAudioSoloToggle ActionType = "audio.solo_toggle"
+	ActionAudioDuckHold   ActionType = "audio.duck_hold"
+	ActionSceneApply      ActionType = "scene.apply"
+	ActionSceneSave       ActionType = "scene.save"
+	ActionLayerMomentary  ActionType = "layer.momentary"
+	ActionLayerLatch      ActionType = "layer.latch"
+	ActionLayerCycle      ActionType = "layer.cycle"
+
+	// -- Binding management (specs/milestones/M04, M06) --
+
+	ActionKnobAssignFocusedApp ActionType = "knob.assign_focused_app"
+	ActionKnobClear            ActionType = "knob.clear"
+	ActionKnobLockToggle       ActionType = "knob.lock_toggle"
+
+	// -- Media transport (specs/milestones/M09-media-transport-mpris.md) --
+
+	ActionMediaTransport ActionType = "media.transport"
+	ActionMediaSeek      ActionType = "media.seek"
+
+	// -- Extended / system (specs/milestones/M11-extended-actions.md) --
+
+	ActionSinkCycleDefault ActionType = "sink.cycle_default"
+	ActionMicPushToTalk    ActionType = "mic.push_to_talk"
+	ActionMicPushToMute    ActionType = "mic.push_to_mute"
+	ActionShellRun         ActionType = "shell.run"
+)
+
+// Action is implemented by every concrete action-parameters type below.
+// A Binding holds one Action; which concrete type it is determines both
+// the JSON shape (via the "type" discriminator handled in binding.go)
+// and, later, which handler in daemon/internal/actions runs it.
+type Action interface {
+	// ActionType returns the constant identifying this action's family.
+	// Implementations must return a literal constant, not a computed
+	// value, since it is also the map key in actionRegistry.
+	ActionType() ActionType
+}
+
+// VolumeAdjustAction changes a target's volume by StepPercent per
+// detent; fired on GestureTurn. StepPercent may be negative to invert
+// the encoder's direction. CurveExponent, if non-zero, overrides the
+// engine's default response curve (see specs/milestones/M03) for just
+// this binding — useful for a fader-like control you want more
+// precision at the low end of.
+type VolumeAdjustAction struct {
+	Target        Target  `json:"target"`
+	StepPercent   float64 `json:"stepPercent"`
+	CurveExponent float64 `json:"curveExponent,omitempty"`
+}
+
+func (VolumeAdjustAction) ActionType() ActionType { return ActionVolumeAdjust }
+
+// VolumeSetAction jumps a target directly to Percent, e.g. a button
+// bound to "always 50%".
+type VolumeSetAction struct {
+	Target  Target  `json:"target"`
+	Percent float64 `json:"percent"`
+}
+
+func (VolumeSetAction) ActionType() ActionType { return ActionVolumeSet }
+
+// VolumeMuteToggleAction toggles mute on a target. This is the default
+// action for an encoder-push's short-press gesture (see
+// specs/milestones/M04-mapping-engine-daemon.md).
+type VolumeMuteToggleAction struct {
+	Target Target `json:"target"`
+}
+
+func (VolumeMuteToggleAction) ActionType() ActionType { return ActionVolumeMuteToggle }
+
+// VolumeBalanceAction adjusts left/right balance rather than overall
+// level; Step is in the same [-1,1] balance units PipeWire uses, per
+// detent.
+type VolumeBalanceAction struct {
+	Target Target  `json:"target"`
+	Step   float64 `json:"step"`
+}
+
+func (VolumeBalanceAction) ActionType() ActionType { return ActionVolumeBalance }
+
+// AudioSoloToggleAction mutes every other known stream while leaving
+// Target audible, and restores prior mute state on a second press.
+type AudioSoloToggleAction struct {
+	Target Target `json:"target"`
+}
+
+func (AudioSoloToggleAction) ActionType() ActionType { return ActionAudioSoloToggle }
+
+// AudioDuckHoldAction drops every stream except Target to DuckPercent
+// for as long as the control is held (GestureHold ... GestureRelease),
+// restoring original levels on release.
+type AudioDuckHoldAction struct {
+	Target      Target  `json:"target"`
+	DuckPercent float64 `json:"duckPercent"`
+}
+
+func (AudioDuckHoldAction) ActionType() ActionType { return ActionAudioDuckHold }
+
+// SceneApplyAction restores the named Scene's saved levels and mute
+// states.
+type SceneApplyAction struct {
+	SceneID string `json:"sceneId"`
+}
+
+func (SceneApplyAction) ActionType() ActionType { return ActionSceneApply }
+
+// SceneSaveAction overwrites the named Scene with the current live mix
+// (of whatever targets that scene's Entries already reference).
+type SceneSaveAction struct {
+	SceneID string `json:"sceneId"`
+}
+
+func (SceneSaveAction) ActionType() ActionType { return ActionSceneSave }
+
+// LayerMomentaryAction switches the active layer to Layer only while
+// the control is held, reverting to the previous layer on release. This
+// is the default binding for the side buttons.
+type LayerMomentaryAction struct {
+	Layer int `json:"layer"`
+}
+
+func (LayerMomentaryAction) ActionType() ActionType { return ActionLayerMomentary }
+
+// LayerLatchAction switches the active layer to Layer until something
+// else changes it.
+type LayerLatchAction struct {
+	Layer int `json:"layer"`
+}
+
+func (LayerLatchAction) ActionType() ActionType { return ActionLayerLatch }
+
+// LayerCycleAction advances the active layer to the next one in
+// LayerOrder (wrapping), or 0->1->2->...->0 if LayerOrder is empty.
+type LayerCycleAction struct {
+	LayerOrder []int `json:"layerOrder,omitempty"`
+}
+
+func (LayerCycleAction) ActionType() ActionType { return ActionLayerCycle }
+
+// KnobAssignFocusedAppAction binds the triggering encoder to whichever
+// application currently owns the focused window, replacing whatever
+// VolumeAdjustAction it had. This is the "press a knob to grab the
+// active app" feature requested for the project.
+type KnobAssignFocusedAppAction struct {
+	// StepPercent carries over to the newly-created VolumeAdjustAction;
+	// if zero, the engine's default is used.
+	StepPercent float64 `json:"stepPercent,omitempty"`
+}
+
+func (KnobAssignFocusedAppAction) ActionType() ActionType { return ActionKnobAssignFocusedApp }
+
+// KnobClearAction removes whatever binding the triggering control
+// currently has (on its own gesture, not a target's), returning it to
+// the dynamic app pool described in specs/reference/action-catalog.md.
+type KnobClearAction struct{}
+
+func (KnobClearAction) ActionType() ActionType { return ActionKnobClear }
+
+// KnobLockToggleAction freezes/unfreezes the triggering encoder so it
+// stops responding to turns, to avoid accidental nudges.
+type KnobLockToggleAction struct{}
+
+func (KnobLockToggleAction) ActionType() ActionType { return ActionKnobLockToggle }
+
+// MediaCommand enumerates the transport operations MediaTransportAction
+// can send. See specs/milestones/M09-media-transport-mpris.md.
+type MediaCommand string
+
+const (
+	MediaPlayPause     MediaCommand = "play_pause"
+	MediaNext          MediaCommand = "next"
+	MediaPrevious      MediaCommand = "previous"
+	MediaShuffleToggle MediaCommand = "shuffle_toggle"
+	MediaRepeatCycle   MediaCommand = "repeat_cycle"
+)
+
+// MediaTransportAction sends one MPRIS transport command to PlayerRef
+// (an MPRIS bus name suffix, e.g. "spotify"), or to whichever player is
+// currently selected if PlayerRef is empty.
+type MediaTransportAction struct {
+	Command   MediaCommand `json:"command"`
+	PlayerRef string       `json:"playerRef,omitempty"`
+}
+
+func (MediaTransportAction) ActionType() ActionType { return ActionMediaTransport }
+
+// MediaSeekAction seeks the current track by SeekMs milliseconds
+// (negative to seek backward) per detent; fired on GestureTurn.
+type MediaSeekAction struct {
+	SeekMs    int64  `json:"seekMs"`
+	PlayerRef string `json:"playerRef,omitempty"`
+}
+
+func (MediaSeekAction) ActionType() ActionType { return ActionMediaSeek }
+
+// SinkCycleDefaultAction advances the system default sink to the next
+// entry in SinkNames (wrapping), e.g. cycling headphones -> speakers ->
+// HDMI on one button.
+type SinkCycleDefaultAction struct {
+	SinkNames []string `json:"sinkNames"`
+}
+
+func (SinkCycleDefaultAction) ActionType() ActionType { return ActionSinkCycleDefault }
+
+// MicPushToTalkAction unmutes the default source while held, muting it
+// again on release.
+type MicPushToTalkAction struct{}
+
+func (MicPushToTalkAction) ActionType() ActionType { return ActionMicPushToTalk }
+
+// MicPushToMuteAction is the inverse of push-to-talk: mutes the default
+// source while held.
+type MicPushToMuteAction struct{}
+
+func (MicPushToMuteAction) ActionType() ActionType { return ActionMicPushToMute }
+
+// ShellRunAction runs Command (via "sh -c") as the escape hatch for any
+// action not otherwise modeled. Command runs with the daemon's own
+// environment and user privileges — never with elevated privileges, and
+// the UI must show it verbatim (not silently) wherever a binding is
+// displayed, since it can do anything the user's shell can do.
+type ShellRunAction struct {
+	Command string `json:"command"`
+}
+
+func (ShellRunAction) ActionType() ActionType { return ActionShellRun }
+
+// actionRegistry maps each ActionType to a decoder for its params. Every
+// concrete Action type must be registered here for Binding's JSON
+// (de)serialization (see binding.go) and for model_test.go's
+// completeness check, which fails the build if a new ActionType constant
+// is added above without a matching registry entry.
+var actionRegistry = map[ActionType]func(json.RawMessage) (Action, error){
+	ActionVolumeAdjust:         decodeInto[VolumeAdjustAction],
+	ActionVolumeSet:            decodeInto[VolumeSetAction],
+	ActionVolumeMuteToggle:     decodeInto[VolumeMuteToggleAction],
+	ActionVolumeBalance:        decodeInto[VolumeBalanceAction],
+	ActionAudioSoloToggle:      decodeInto[AudioSoloToggleAction],
+	ActionAudioDuckHold:        decodeInto[AudioDuckHoldAction],
+	ActionSceneApply:           decodeInto[SceneApplyAction],
+	ActionSceneSave:            decodeInto[SceneSaveAction],
+	ActionLayerMomentary:       decodeInto[LayerMomentaryAction],
+	ActionLayerLatch:           decodeInto[LayerLatchAction],
+	ActionLayerCycle:           decodeInto[LayerCycleAction],
+	ActionKnobAssignFocusedApp: decodeInto[KnobAssignFocusedAppAction],
+	ActionKnobClear:            decodeInto[KnobClearAction],
+	ActionKnobLockToggle:       decodeInto[KnobLockToggleAction],
+	ActionMediaTransport:       decodeInto[MediaTransportAction],
+	ActionMediaSeek:            decodeInto[MediaSeekAction],
+	ActionSinkCycleDefault:     decodeInto[SinkCycleDefaultAction],
+	ActionMicPushToTalk:        decodeInto[MicPushToTalkAction],
+	ActionMicPushToMute:        decodeInto[MicPushToMuteAction],
+	ActionShellRun:             decodeInto[ShellRunAction],
+}
+
+// decodeInto unmarshals raw into a zero-value T and returns it as an
+// Action. T must be one of the concrete action-params types above (i.e.
+// implement Action on its value receiver).
+func decodeInto[T Action](raw json.RawMessage) (Action, error) {
+	var v T
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, fmt.Errorf("model: decode %T: %w", v, err)
+		}
+	}
+	return v, nil
+}
+
+// DecodeAction decodes a {"type": ..., "params": {...}} document into
+// the concrete Action it names.
+func DecodeAction(data []byte) (Action, error) {
+	var envelope struct {
+		Type   ActionType      `json:"type"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, fmt.Errorf("model: decode action envelope: %w", err)
+	}
+	factory, ok := actionRegistry[envelope.Type]
+	if !ok {
+		return nil, fmt.Errorf("model: unknown action type %q", envelope.Type)
+	}
+	action, err := factory(envelope.Params)
+	if err != nil {
+		return nil, fmt.Errorf("model: decode action %q: %w", envelope.Type, err)
+	}
+	return action, nil
+}
+
+// EncodeAction encodes an Action as a {"type": ..., "params": {...}}
+// document.
+func EncodeAction(a Action) ([]byte, error) {
+	if a == nil {
+		return nil, fmt.Errorf("model: cannot encode nil action")
+	}
+	params, err := json.Marshal(a)
+	if err != nil {
+		return nil, fmt.Errorf("model: encode %T params: %w", a, err)
+	}
+	envelope := struct {
+		Type   ActionType      `json:"type"`
+		Params json.RawMessage `json:"params"`
+	}{Type: a.ActionType(), Params: params}
+	return json.Marshal(envelope)
+}

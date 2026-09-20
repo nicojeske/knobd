@@ -1,0 +1,26 @@
+[Unit]
+Description=knobd — X-Touch Mini audio mixer & macro daemon
+Documentation=https://github.com/njeske/knobd
+# Started on demand alongside the graphical session; focus tracking
+# (specs/adr/0003-focus-tracking-via-kwin-script.md) needs a running
+# Plasma session's D-Bus, so this deliberately targets the graphical
+# session rather than plain multi-user.target.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# TODO(M12): replace with the installed path (e.g.
+# /usr/lib/knobd/knobd or ~/.local/bin/knobd) once packaging exists —
+# %h expands to the invoking user's home directory under systemd --user.
+ExecStart=%h/.local/bin/knobd
+Restart=on-failure
+RestartSec=2s
+
+# The daemon only needs /dev/snd/midi* (via `audio` group membership,
+# not root) and a unix socket under $XDG_RUNTIME_DIR — no elevated
+# privileges of any kind.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target
