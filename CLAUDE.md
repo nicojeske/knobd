@@ -43,7 +43,9 @@ work completes rather than letting the spec drift from reality.
   logical change. Reference the milestone id (`M04`, etc.) in the
   message when applicable. Commit finished work as you go — don't leave
   a clean, verified change sitting uncommitted waiting for a separate
-  "commit it" request.
+  "commit it" request. Commit straight to `main` — this repo doesn't use
+  feature branches, so don't create one (including the usual
+  default-branch-gets-a-branch-first habit).
 
 ## Testing without the physical controller
 
