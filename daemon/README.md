@@ -6,9 +6,12 @@ Go module `github.com/njeske/knobd`. Builds to a single static binary
 constraint, not just a default.
 
 ```
-cmd/knobd/          main.go — flag parsing, config load, logging, signal
-                     handling. Does not start MIDI/audio/focus/engine/api
-                     yet — those are still scaffolding (see below).
+cmd/knobd/          main.go — subcommand dispatch, flag parsing, config
+                     load, logging, signal handling. `knobd monitor`
+                     (monitor.go, M02) prints decoded MIDI events; the
+                     bare daemon path does not yet start
+                     audio/focus/engine/api — those are still
+                     scaffolding (see below).
 cmd/schemagen/       regenerates docs/config.schema.json (`make schema`).
                      A separate binary from knobd so its dependency
                      (github.com/invopop/jsonschema) never links into the
@@ -24,11 +27,15 @@ internal/
   schema/            generates the JSON Schema for model.Config that
                       cmd/schemagen writes out; the model package itself
                       stays dependency-free.
-  midi/              Port interface + FakePort. Real rawmidi backend and
-                      device discovery: TODO(M02).
+  midi/              Port interface + FakePort, plus the real backend
+                      (M02): discovery (discover.go), a running-status
+                      byte-stream parser (parser.go), the rawmidi Port
+                      (rawmidi.go), inotify hotplug watching
+                      (watcher.go), and a self-healing, reconnecting
+                      Supervisor (supervisor.go).
   device/            Codec interface for the X-Touch Mini's MIDI
-                      encoding. Real implementation: TODO(M02) (input),
-                      TODO(M05) (LED output).
+                      encoding. Decode is implemented (M02, xtouch.go).
+                      EncodeLED (LED output): TODO(M05).
   audio/             Backend interface + FakeBackend + AppMatcher
                       resolution signature. Real PipeWire backend:
                       TODO(M03).

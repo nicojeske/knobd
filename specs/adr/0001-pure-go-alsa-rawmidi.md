@@ -19,11 +19,22 @@ MIDI messages.
 ## Decision
 
 Implement `daemon/internal/midi`'s real backend as a pure-Go reader/
-writer against the ALSA rawmidi character device
-(`/dev/snd/by-id/usb-Behringer_X-TOUCH_MINI_1.0.1-00`, resolved via
-`/dev/snd/by-id` rather than a card number — see
+writer against the ALSA rawmidi character device, discovered via
+`/dev/snd/by-id` rather than a card number (see
 `specs/reference/environment.md`), with no CGo and no dependency on
 `librtmidi` being installed.
+
+**M02 finding, worth recording here since it corrected this decision's
+own framing**: `/dev/snd/by-id/usb-Behringer_X-TOUCH_MINI_1.0.1-00`
+resolves to `/dev/snd/controlC<N>` — the ALSA *control* device, not the
+rawmidi node — because the by-id symlinks udev creates for a sound card
+identify the card, not a specific PCM/MIDI subdevice. Opening the
+control device as if it were rawmidi doesn't error; `read(2)` on it just
+blocks forever. So by-id is the right thing to *discover through* (it's
+stable across reboots and other USB audio devices being plugged in,
+which a card number isn't) but the path actually passed to `open(2)`
+must be resolved one step further, to `/dev/snd/midiC<N>D0`. See
+`daemon/internal/midi/discover.go`.
 
 `gitlab.com/gomidi/midi/v2` (pure Go, confirmed reachable on the module
 proxy) is an acceptable dependency for message *parsing/encoding
@@ -51,7 +62,13 @@ depends on nobody upstream deciding to require CGo later.
   beyond libc, simplifying packaging (M12) to "copy one file."
 - knobd owns MIDI running-status parsing itself rather than getting it
   for free from a library — a real, if small, implementation burden for
-  M02.
+  M02 (`daemon/internal/midi/parser.go`).
+- Hotplug detection (M02) is also in-house rather than a dependency: the
+  Linux `syscall` package's stdlib inotify wrappers
+  (`InotifyInit1`/`InotifyAddWatch`) are enough, and — like the rawmidi
+  fd itself — an inotify fd opened non-blocking is registered with Go's
+  runtime netpoller, so `Close` cleanly unblocks a blocked read with no
+  extra plumbing.
 - If a future controller needs SysEx or multi-port MIDI in ways the
   rawmidi character device doesn't expose cleanly, this decision may
   need revisiting. Not a concern for the X-Touch Mini today.

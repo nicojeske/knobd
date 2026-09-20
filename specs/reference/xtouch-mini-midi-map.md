@@ -47,14 +47,18 @@ the ones in between.
 
 **Non-contiguous — do not assume `note = 40 + index`.** All 8 top-row
 notes were verified directly in a guided, timestamped capture (pressed
-left to right, one at a time). The bottom row was only *partially*
-verified live: positions 1, 6, 7, 8 (notes 87, 93, 94, 95) were captured
-directly; positions 2–5 (88, 91, 92, 86) are filled in from the publicly
-documented Mackie Control button map for this device, consistent with
-what was captured but not independently confirmed on this unit. **M02
-should re-verify the middle four before relying on them**, and M07's
+left to right, one at a time). The bottom row was originally only
+*partially* verified live during planning: positions 1, 6, 7, 8 (notes
+87, 93, 94, 95) were captured directly; positions 2–5 (88, 91, 92, 86)
+were filled in from the publicly documented Mackie Control button map
+for this device. M02 re-verified this against the physical unit
+(2026-09-21, via `knobd monitor --raw`; see
+[`testdata/midi/live-verification-capture.txt`](../../testdata/midi/live-verification-capture.txt))
+and confirmed positions 2, 3, 4, 5 (notes 88, 91, 92, 86) directly, each
+by pressing the physical button and reading back its note number live —
+all 8 bottom-row notes now have direct confirmation on this unit. M07's
 MIDI-learn feature means end users never actually depend on this table
-being letter-perfect.
+being letter-perfect regardless.
 
 ## Side buttons
 

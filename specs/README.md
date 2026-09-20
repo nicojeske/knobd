@@ -24,7 +24,7 @@ milestones/   M01-M12: one file per unit of work, in dependency order.
 | # | Milestone | Status | Depends on |
 |---|---|---|---|
 | [M01](milestones/M01-foundations.md) | Foundations | Done | — |
-| [M02](milestones/M02-midi-transport.md) | MIDI transport | Not started | M01 |
+| [M02](milestones/M02-midi-transport.md) | MIDI transport | Done | M01 |
 | [M03](milestones/M03-audio-control.md) | Audio control | Not started | M01 |
 | [M04](milestones/M04-mapping-engine-daemon.md) | Mapping engine & daemon | Not started | M02, M03 |
 | [M05](milestones/M05-led-feedback.md) | LED feedback | Not started | M04 |

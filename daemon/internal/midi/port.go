@@ -3,24 +3,34 @@
 // devices. It knows nothing about what the bytes mean for any specific
 // controller — that translation is daemon/internal/device's job.
 //
-// TODO(M02): implement the real backend. Findings from live testing this
-// package's implementation should target, captured in
+// The real backend (discover.go, rawmidi.go, watcher.go, supervisor.go)
+// targets findings from live testing, captured in
 // specs/reference/xtouch-mini-midi-map.md and specs/reference/environment.md:
 //   - The X-Touch Mini shows up as a plain ALSA rawmidi character
 //     device, readable/writable without CGo: read(2)/write(2) on
 //     /dev/snd/midiC<card>D0 works, confirmed with a 20-line Python
 //     script during planning.
-//   - Prefer /dev/snd/by-id/usb-Behringer_X-TOUCH_MINI_1.0.1-00 (or a
-//     glob over /dev/snd/by-id/usb-Behringer_X-TOUCH_MINI_*) over a
-//     card index — card numbers are not stable across reboots or other
-//     USB audio devices being plugged in.
+//   - /dev/snd/by-id/usb-Behringer_X-TOUCH_MINI_* is the stable thing to
+//     *discover* through (card numbers are not stable across reboots or
+//     other USB audio devices being plugged in) — but it resolves to
+//     /dev/snd/controlC<N>, the ALSA *control* device, not the rawmidi
+//     node. The path actually opened for I/O must be the corresponding
+//     /dev/snd/midiC<N>D0 (see discover.go); opening the control device
+//     as if it were rawmidi doesn't error, it just blocks forever on the
+//     first Read.
+//   - On Linux, os.OpenFile on a character device is registered with
+//     Go's runtime netpoller (the non-pollable-fd exclusion in
+//     os.newFile is BSD-only), so a blocked Read unblocks promptly and
+//     with a clean error when the file is Closed — no epoll plumbing,
+//     no golang.org/x/sys, no CGo needed for that or for hotplug
+//     watching (see watcher.go, built on the syscall package's stdlib
+//     inotify wrappers).
 //   - The device can disappear (unplugged, or the kernel briefly drops
-//     it around a suspend/resume); Discover and the real Port
-//     implementation need a hotplug story (inotify on /dev/snd, or
-//     periodic re-scan) and reconnect backoff, not just a one-shot open.
-//   - Messages need running-status handling: a real capture showed the
-//     fader's pitch-bend stream can arrive without a repeated status
-//     byte between consecutive updates.
+//     it around a suspend/resume); Supervisor (supervisor.go) is the
+//     hotplug + reconnect-with-backoff story built on top of Port.
+//   - Messages need running-status handling (parser.go): a real capture
+//     showed the fader's pitch-bend stream can arrive without a
+//     repeated status byte between consecutive updates.
 package midi
 
 import (
@@ -39,10 +49,11 @@ type Message struct {
 	Data1  byte
 	Data2  byte
 	// Time is when the Port received (or is about to send) the message.
-	// A real backend should use the timestamp closest to the hardware
-	// event, not just time.Now() at the point the message is decoded,
-	// since gesture timing (press vs. hold, see model.GestureHold) is
-	// measured from it.
+	// The real backend stamps this the instant read(2) returns, since
+	// that's the closest available to the hardware event — the rawmidi
+	// character device carries no hardware timestamp of its own (that's
+	// a sequencer-API feature) — and gesture timing (press vs. hold, see
+	// model.GestureHold) is measured from it.
 	Time time.Time
 }
 
@@ -71,25 +82,15 @@ type Port interface {
 type DeviceInfo struct {
 	// Name is a human-readable identification, e.g. "X-TOUCH MINI".
 	Name string
-	// Path is the stable device path to open, preferring
-	// /dev/snd/by-id/* over /dev/snd/midiC<n>D0 (see the package doc
-	// comment for why).
+	// Path is the rawmidi character device to pass to Open, e.g.
+	// "/dev/snd/midiC3D0". This is deliberately not a /dev/snd/by-id
+	// path — see the package doc comment for why that symlink points at
+	// the wrong device for I/O.
 	Path string
-}
-
-// Discover lists connected MIDI devices. TODO(M02): implement by
-// scanning /dev/snd/by-id for entries matching known controller vendor
-// strings (starting with "usb-Behringer_X-TOUCH_MINI_"), falling back to
-// /dev/snd/by-path or a full /proc/asound scan if by-id is unavailable
-// (e.g. udev not running).
-func Discover() ([]DeviceInfo, error) {
-	return nil, errNotImplemented("midi.Discover")
-}
-
-// Open opens the device at path as a Port. TODO(M02): implement using
-// os.OpenFile on the rawmidi character device in read-write mode, and a
-// background goroutine parsing the byte stream (including running
-// status) into Messages for Read to consume.
-func Open(path string) (Port, error) {
-	return nil, errNotImplemented("midi.Open")
+	// StableID is the /dev/snd/by-id path Path was resolved from, kept
+	// around for logging and for re-resolving after a reconnect (Path's
+	// card number is not stable across replugs). Empty when discovery
+	// fell back to scanning for rawmidi nodes directly because by-id
+	// wasn't available.
+	StableID string
 }
