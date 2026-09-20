@@ -41,7 +41,9 @@ work completes rather than letting the spec drift from reality.
   CI — see `docs/README.md`).
 - **Commits**: one milestone (or a clearly-scoped slice of one) per
   logical change. Reference the milestone id (`M04`, etc.) in the
-  message when applicable.
+  message when applicable. Commit finished work as you go — don't leave
+  a clean, verified change sitting uncommitted waiting for a separate
+  "commit it" request.
 
 ## Testing without the physical controller
 
