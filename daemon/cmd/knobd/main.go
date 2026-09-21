@@ -2,7 +2,9 @@
 // the audio and focus backends, and the mapping engine, and serves the
 // local API the configuration UI talks to. See ../../../specs/README.md
 // for the milestone plan. Bare `knobd` runs the daemon; `knobd monitor`
-// (M02) prints decoded MIDI events without the rest of the daemon.
+// (M02) prints decoded MIDI events, and `knobd monitor-audio` (M03)
+// prints the live PipeWire sink/source/stream graph and its change
+// events — both without the rest of the daemon.
 package main
 
 import (
@@ -27,8 +29,10 @@ func main() {
 		err = runDaemon(args)
 	case "monitor":
 		err = runMonitor(args)
+	case "monitor-audio":
+		err = runMonitorAudio(args)
 	default:
-		err = fmt.Errorf("unknown subcommand %q (known subcommands: monitor)", cmd)
+		err = fmt.Errorf("unknown subcommand %q (known subcommands: monitor, monitor-audio)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "knobd:", err)

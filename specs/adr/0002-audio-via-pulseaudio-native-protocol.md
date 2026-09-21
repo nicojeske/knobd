@@ -33,6 +33,51 @@ to confirm early), fall back to shelling out to `pactl` for that
 specific operation, behind the same `audio.Backend` interface — the rest
 of the daemon should not need to know which one is in use.
 
+**M03 update — confirmed, no fallback needed.** Checked against both
+pkg.go.dev and v0.1.3's actual source before building anything on top of
+it, then against this system's live `pipewire-pulse` with a throwaway
+probe (two real `paplay` streams, a live `SetSinkInputVolume`/
+`SetSinkInputMute` round-trip, and a live `Subscribe`): every operation
+knobd needs is present —
+`SetSinkInputVolume`/`SetSinkInputMute`/`SetSinkVolume`/`SetSinkMute`/
+`SetSourceVolume`/`SetSourceMute`/`SetSourceOutputVolume`/
+`SetSourceOutputMute`, `GetSinkInputInfoList`/`GetSourceOutputInfoList`,
+and `Subscribe`/`SubscribeEvent` with a working, promptly-delivered
+change-event stream (confirmed live: an externally-triggered `pactl`
+volume change showed up in `knobd monitor-audio`'s output in well under a
+second, no polling). The `pactl` fallback was not needed anywhere.
+
+Four library behaviors, not documented anywhere obvious, shape
+`daemon/internal/audio/pulse.go`'s design and are worth recording here so
+a future reader isn't surprised by them:
+
+- **`proto.Client` has no `Close` method.** The only way to stop its
+  internal read loop is to close the `net.Conn` `proto.Connect` hands
+  back alongside the client.
+- **A timed-out `Request` doesn't clean up after itself.** `proto.Client`
+  defaults to a 1-second request timeout (raised to 5s here); on timeout,
+  `Request` returns but leaves its pending reply registration in place,
+  so a late reply can still write into the caller's reply struct after
+  the caller has moved on. The code never reuses or reads a reply struct
+  after a failed `Request`.
+- **`proto.Client.Callback` runs inline in the read loop and blocks it
+  until it returns** — a `Request` call from inside `Callback` can never
+  see its own reply. The subscribe-event callback only ever hands events
+  off to a channel; a separate goroutine does the round-trip lookups.
+- **Connection loss isn't always signaled.** The read loop only fires a
+  `ConnectionClosed` callback on `io.EOF`; other failures (a reset
+  connection, a protocol parse error) just exit silently. `pulse.go`
+  additionally treats a non-`proto.Error` `Request` failure as terminal
+  and runs a periodic `GetServerInfo` heartbeat, so a silent death is
+  still noticed.
+
+Also confirmed live: this system's negotiated protocol version is **32**
+(the client library's own cap, via `client.SetVersion`'s
+`Min(ourCap, serverOffered)` — the server itself offers 35), which is
+comfortably above every version-gated field the implementation needs
+(`Properties` at v13, `VolumeWritable` at v20 for sink-inputs and v22 for
+source-outputs).
+
 ## Alternatives considered
 
 - **Shell out to `pactl` for everything**: simplest to implement, but no

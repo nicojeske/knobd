@@ -2,7 +2,10 @@ module github.com/njeske/knobd
 
 go 1.27.1
 
-require github.com/invopop/jsonschema v0.14.0
+require (
+	github.com/invopop/jsonschema v0.14.0
+	github.com/jfreymuth/pulse v0.1.3
+)
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect

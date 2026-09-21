@@ -1,4 +1,4 @@
-.PHONY: build test vet lint fmt fmt-check schema run monitor clean ui-install ui-dev
+.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio clean ui-install ui-dev
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
@@ -33,6 +33,9 @@ run: build ## Run the daemon in the foreground with debug logging
 
 monitor: build ## Print decoded MIDI events without running the full daemon
 	./$(BIN) monitor
+
+monitor-audio: build ## Print live PipeWire sinks/sources/streams and change events
+	./$(BIN) monitor-audio
 
 ui-install: ## Install UI dependencies
 	cd ui && npm install

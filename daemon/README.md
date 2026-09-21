@@ -8,10 +8,12 @@ constraint, not just a default.
 ```
 cmd/knobd/          main.go — subcommand dispatch, flag parsing, config
                      load, logging, signal handling. `knobd monitor`
-                     (monitor.go, M02) prints decoded MIDI events; the
-                     bare daemon path does not yet start
-                     audio/focus/engine/api — those are still
-                     scaffolding (see below).
+                     (monitor.go, M02) prints decoded MIDI events; `knobd
+                     monitor-audio` (monitor_audio.go, M03) prints the
+                     live PipeWire sink/source/stream graph and its
+                     change events. The bare daemon path does not yet
+                     start audio/focus/engine/api together — those are
+                     still scaffolding (see below).
 cmd/schemagen/       regenerates docs/config.schema.json (`make schema`).
                      A separate binary from knobd so its dependency
                      (github.com/invopop/jsonschema) never links into the
@@ -36,9 +38,16 @@ internal/
   device/            Codec interface for the X-Touch Mini's MIDI
                       encoding. Decode is implemented (M02, xtouch.go).
                       EncodeLED (LED output): TODO(M05).
-  audio/             Backend interface + FakeBackend + AppMatcher
-                      resolution signature. Real PipeWire backend:
-                      TODO(M03).
+  audio/             Backend interface + FakeBackend, and (M03) the real
+                      PipeWire backend against pipewire-pulse's
+                      PulseAudio-compatible protocol (pulse.go,
+                      subscribe.go — see
+                      ../specs/adr/0002-audio-via-pulseaudio-native-protocol.md),
+                      a self-healing, reconnecting Supervisor
+                      (supervisor.go, mirroring midi's), real AppMatcher
+                      resolution (matcher.go), and the volume response
+                      curve (curve.go). Wiring any of this into MIDI
+                      input or the mapping engine: TODO(M04).
   focus/             Provider interface + FakeProvider. Real KWin-script
                       backend: TODO(M06).
   engine/            Event loop skeleton. Real gesture detection, layer

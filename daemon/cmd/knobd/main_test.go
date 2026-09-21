@@ -17,6 +17,8 @@ func TestParseArgs(t *testing.T) {
 		{"single-dash flag also runs the daemon", []string{"-log-level", "debug"}, "", []string{"-log-level", "debug"}},
 		{"monitor dispatches", []string{"monitor"}, "monitor", []string{}},
 		{"monitor with flags dispatches and keeps them", []string{"monitor", "--raw"}, "monitor", []string{"--raw"}},
+		{"monitor-audio dispatches", []string{"monitor-audio"}, "monitor-audio", []string{}},
+		{"monitor-audio with flags dispatches and keeps them", []string{"monitor-audio", "--once"}, "monitor-audio", []string{"--once"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

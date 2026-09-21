@@ -2,6 +2,7 @@ package audio
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ func TestFakeBackendSeedAndQuery(t *testing.T) {
 	f.Seed(
 		[]Device{{ID: "sink1", Description: "Speakers", IsDefault: true}},
 		[]Device{{ID: "mic1", Description: "Mic"}},
-		[]Stream{{ID: "vesktop", Props: map[string]string{"application.name": "vesktop"}}},
+		[]Stream{{ID: "118", Direction: StreamPlayback, Props: map[string]string{"application.name": "vesktop"}}},
 	)
 
 	ctx := context.Background()
@@ -25,11 +26,11 @@ func TestFakeBackendSeedAndQuery(t *testing.T) {
 		t.Fatalf("Sources() = %+v, %v", sources, err)
 	}
 	streams, err := f.Streams(ctx)
-	if err != nil || len(streams) != 1 || streams[0].ID != "vesktop" {
+	if err != nil || len(streams) != 1 || streams[0].ID != "118" {
 		t.Fatalf("Streams() = %+v, %v", streams, err)
 	}
 
-	v, err := f.GetVolume(ctx, "sink1")
+	v, err := f.GetVolume(ctx, Ref{Kind: RefSink, ID: "sink1"})
 	if err != nil {
 		t.Fatalf("GetVolume: %v", err)
 	}
@@ -42,14 +43,15 @@ func TestFakeBackendSetVolumeAndMute(t *testing.T) {
 	f := NewFakeBackend()
 	f.Seed([]Device{{ID: "sink1"}}, nil, nil)
 	ctx := context.Background()
+	ref := Ref{Kind: RefSink, ID: "sink1"}
 
-	if err := f.SetVolume(ctx, "sink1", 42); err != nil {
+	if err := f.SetVolume(ctx, ref, 42); err != nil {
 		t.Fatalf("SetVolume: %v", err)
 	}
-	if err := f.SetMute(ctx, "sink1", true); err != nil {
+	if err := f.SetMute(ctx, ref, true); err != nil {
 		t.Fatalf("SetMute: %v", err)
 	}
-	v, err := f.GetVolume(ctx, "sink1")
+	v, err := f.GetVolume(ctx, ref)
 	if err != nil {
 		t.Fatalf("GetVolume: %v", err)
 	}
@@ -61,14 +63,15 @@ func TestFakeBackendSetVolumeAndMute(t *testing.T) {
 func TestFakeBackendUnknownIDErrors(t *testing.T) {
 	f := NewFakeBackend()
 	ctx := context.Background()
-	if _, err := f.GetVolume(ctx, "nope"); err == nil {
-		t.Error("expected error for unknown id")
+	ref := Ref{Kind: RefSink, ID: "nope"}
+	if _, err := f.GetVolume(ctx, ref); err == nil {
+		t.Error("expected error for unknown ref")
 	}
-	if err := f.SetVolume(ctx, "nope", 1); err == nil {
-		t.Error("expected error for unknown id")
+	if err := f.SetVolume(ctx, ref, 1); err == nil {
+		t.Error("expected error for unknown ref")
 	}
-	if err := f.SetMute(ctx, "nope", true); err == nil {
-		t.Error("expected error for unknown id")
+	if err := f.SetMute(ctx, ref, true); err == nil {
+		t.Error("expected error for unknown ref")
 	}
 }
 
@@ -82,7 +85,7 @@ func TestFakeBackendSubscribeReceivesEmit(t *testing.T) {
 		t.Fatalf("Subscribe: %v", err)
 	}
 
-	want := Event{Kind: EventStreamRemoved, Stream: &Stream{ID: "vesktop"}}
+	want := Event{Kind: EventStreamRemoved, Stream: &Stream{ID: "118"}}
 	f.Emit(want)
 
 	select {
@@ -113,4 +116,35 @@ func TestFakeBackendSubscribeClosesOnCancel(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for channel to close after cancel")
 	}
+}
+
+func TestFakeBackendSubscribeConcurrentEmitAndCancel(t *testing.T) {
+	// Regression test for the send-races-close bug fixed in Emit/Subscribe:
+	// hammer Emit and cancel concurrently across many subscribers and
+	// confirm the race detector (run via `go test -race`) finds nothing
+	// and nothing panics.
+	f := NewFakeBackend()
+	const n = 50
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		ch, err := f.Subscribe(ctx)
+		if err != nil {
+			t.Fatalf("Subscribe: %v", err)
+		}
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for range ch {
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			cancel()
+		}()
+	}
+	for i := 0; i < 200; i++ {
+		f.Emit(Event{Kind: EventStreamRemoved, Stream: &Stream{ID: "x"}})
+	}
+	wg.Wait()
 }

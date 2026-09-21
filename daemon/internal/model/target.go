@@ -94,20 +94,30 @@ type AppMatcher struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
 
-	// Binaries matches application.process.binary, e.g. "vesktop".
+	// Binaries matches application.process.binary case-insensitively,
+	// e.g. "vesktop".
 	Binaries []string `json:"binaries,omitempty"`
 	// AppNames matches application.name case-insensitively, e.g. "Pal".
 	AppNames []string `json:"appNames,omitempty"`
-	// NodeNames matches node.name. Required as a first-class key
-	// (rather than a fallback) because some streams — observed live,
-	// see testdata/pipewire/pw-dump-sample.json id 112 — expose no
-	// application.* properties at all, only node.name.
+	// NodeNames matches node.name case-insensitively. Required as a
+	// first-class key (rather than a fallback) because some streams —
+	// observed live, see testdata/pipewire/pw-dump-sample.json id 112 —
+	// expose no application.* properties at all, only node.name.
 	NodeNames []string `json:"nodeNames,omitempty"`
 	// DesktopIDs matches application.id (PipeWire) or a window's
-	// resourceClass (from the focus package), e.g. "discord".
+	// resourceClass (from the focus package) case-insensitively, e.g.
+	// "discord".
 	DesktopIDs []string `json:"desktopIds,omitempty"`
 	// MediaNameRx, if set, is a regular expression matched against
-	// media.name.
+	// media.name. Unlike the other fields, this one is case-sensitive
+	// (prefix the pattern with "(?i)" for case-insensitive matching) and
+	// unanchored — "Pal" also matches "Palworld".
+	//
+	// Every other field above matches case-insensitively: the same
+	// application can publish properties in inconsistent casing across
+	// its streams (testdata/pipewire/pw-dump-sample.json alone has
+	// "Brave"/"brave", "vesktop", and "Pal"), and matchers are hand-
+	// written against whatever a user sees in pactl/pw-dump.
 	MediaNameRx string `json:"mediaNameRx,omitempty"`
 }
 
