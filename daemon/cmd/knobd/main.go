@@ -3,9 +3,10 @@
 // local API the configuration UI talks to. See ../../../specs/README.md
 // for the milestone plan. Bare `knobd` runs the daemon; `knobd monitor`
 // (M02) prints decoded MIDI events, `knobd monitor-audio` (M03) prints
-// the live PipeWire sink/source/stream graph and its change events, and
-// `knobd calibrate-leds` (M05) sends one raw LED MIDI message and exits
-// — all three without the rest of the daemon.
+// the live PipeWire sink/source/stream graph and its change events,
+// `knobd monitor-focus` (M06) prints focus changes as KWin reports
+// them, and `knobd calibrate-leds` (M05) sends one raw LED MIDI message
+// and exits — all four without the rest of the daemon.
 package main
 
 import (
@@ -39,10 +40,12 @@ func main() {
 		err = runMonitor(args)
 	case "monitor-audio":
 		err = runMonitorAudio(args)
+	case "monitor-focus":
+		err = runMonitorFocus(args)
 	case "calibrate-leds":
 		err = runCalibrateLEDs(args)
 	default:
-		err = fmt.Errorf("unknown subcommand %q (known subcommands: monitor, monitor-audio, calibrate-leds)", cmd)
+		err = fmt.Errorf("unknown subcommand %q (known subcommands: monitor, monitor-audio, monitor-focus, calibrate-leds)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "knobd:", err)
@@ -129,8 +132,11 @@ func runDaemon(args []string) error {
 
 	focusProv := focus.Unavailable()
 	focusAvailable := false
-	if p, ferr := focus.New(ctx); ferr != nil {
-		logger.Warn("focus tracking unavailable; 'focused' targets and knob.assign_focused_app will not resolve until M06", "err", ferr)
+	// KNOBD_KWIN_SCRIPT lets the embedded script be overridden with one
+	// loaded from disk verbatim, for iterating on
+	// daemon/internal/focus/script/knobd-focus.js without rebuilding.
+	if p, ferr := focus.New(ctx, focus.Options{Logger: logger, ScriptPath: os.Getenv("KNOBD_KWIN_SCRIPT")}); ferr != nil {
+		logger.Warn("focus tracking unavailable; 'focused' targets and knob.assign_focused_app will not resolve", "err", ferr)
 	} else {
 		focusProv = p
 		focusAvailable = true

@@ -43,6 +43,9 @@ monitor: build ## Print decoded MIDI events without running the full daemon
 monitor-audio: build ## Print live PipeWire sinks/sources/streams and change events
 	./$(BIN) monitor-audio
 
+monitor-focus: build ## Print focus changes as KWin reports them
+	./$(BIN) monitor-focus
+
 calibrate-leds: build ## Build knobd for LED calibration (run e.g. ./daemon/knobd calibrate-leds -cc 48 -value 0)
 	@echo "built $(BIN); run e.g.:"
 	@echo "    ./$(BIN) calibrate-leds -cc 48 -value 0     # encoder 1's ring"

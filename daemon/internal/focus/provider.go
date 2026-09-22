@@ -72,9 +72,3 @@ type Provider interface {
 
 	Close() error
 }
-
-// New connects to the window manager's focus-tracking mechanism.
-// TODO(M06): implement kwinProvider; see the package doc comment.
-func New(ctx context.Context) (Provider, error) {
-	return nil, errNotImplemented("focus.New")
-}
