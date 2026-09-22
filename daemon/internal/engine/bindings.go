@@ -92,3 +92,37 @@ func (ix *bindingIndex) lookup(layer int, c model.Control, g model.Gesture) (mod
 func (ix *bindingIndex) deferPress(c model.Control) bool {
 	return ix.doubleBound[c]
 }
+
+// activeBinding is one (control, gesture) resolved against a specific
+// layer, for Snapshot.
+type activeBinding struct {
+	Control model.Control
+	Gesture model.Gesture
+	Action  model.Action
+}
+
+// activeBindings returns every (control, gesture) that resolves to an
+// action on layer, applying the same layer-0 fallback lookup does. Used
+// to build Snapshot; not on any dispatch hot path.
+func (ix *bindingIndex) activeBindings(layer int) []activeBinding {
+	type controlGesture struct {
+		Control model.Control
+		Gesture model.Gesture
+	}
+	seen := make(map[controlGesture]bool)
+	var out []activeBinding
+	for k := range ix.byKey {
+		if k.Layer != layer && k.Layer != 0 {
+			continue
+		}
+		cg := controlGesture{k.Control, k.Gesture}
+		if seen[cg] {
+			continue
+		}
+		seen[cg] = true
+		if a, ok := ix.lookup(layer, k.Control, k.Gesture); ok {
+			out = append(out, activeBinding{Control: k.Control, Gesture: k.Gesture, Action: a})
+		}
+	}
+	return out
+}

@@ -145,6 +145,13 @@ func (r *resolver) allPlaybackStreams() []audio.Ref {
 	return refs
 }
 
+// resolveFocused is called inline on the engine's run goroutine (both
+// for dispatch and for Snapshot), which is safe in M04 only because
+// focus.Unavailable() and focus.FakeProvider both answer Current
+// synchronously with no I/O. M06's real kwinProvider talks to D-Bus, so
+// once it lands, this needs to move behind a cached-latest-Watch-value
+// pattern (the same shape the stream cache already uses for audio) so a
+// slow focus lookup can never stall gesture timing.
 func (r *resolver) resolveFocused(ctx context.Context) ([]audio.Ref, error) {
 	info, err := r.focus.Current(ctx)
 	if err != nil {
