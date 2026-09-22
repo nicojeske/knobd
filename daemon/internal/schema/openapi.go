@@ -19,6 +19,8 @@ import (
 var componentTypes = map[string]any{
 	"Config":        Config{},
 	"State":         api.State{},
+	"AudioGraph":    api.AudioGraph{},
+	"Capabilities":  api.Capabilities{},
 	"ErrorResponse": api.ErrorResponse{},
 }
 

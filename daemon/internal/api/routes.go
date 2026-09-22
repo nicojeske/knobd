@@ -68,5 +68,26 @@ func Routes() []Route {
 				{Status: 503, Schema: "ErrorResponse", Description: "No state provider is wired up."},
 			},
 		},
+		{
+			Method:      "GET",
+			Path:        "/audio",
+			OperationID: "getAudio",
+			Summary:     "Get the live audio graph",
+			Description: "Live sinks, sources and streams, for the UI's target/app pickers. Streams carry their raw PipeWire property bag and which configured app matchers currently match them.",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "AudioGraph", Description: "The current audio graph."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No audio provider is wired up, or the audio backend didn't answer in time."},
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/capabilities",
+			OperationID: "getCapabilities",
+			Summary:     "Get what this daemon build actually supports",
+			Description: "Which action types have a registered handler, which target kinds resolve, and which optional features (layers, scenes, learn) are available -- so the UI can reflect reality instead of hard-coding it.",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "Capabilities", Description: "The current capabilities."},
+			},
+		},
 	}
 }

@@ -126,7 +126,7 @@ func assertComponentTypeDeclared(t *testing.T, name string) {
 	// reached transitively and only needs to exist in the generated
 	// document, which TestOpenAPIRoutesComplete already checks.
 	switch name {
-	case "Config", "State", "ErrorResponse":
+	case "Config", "State", "AudioGraph", "Capabilities", "ErrorResponse":
 		if _, ok := componentTypes[name]; !ok {
 			t.Errorf("route references component schema %q, which is not in componentTypes", name)
 		}

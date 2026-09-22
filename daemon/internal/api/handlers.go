@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -107,4 +108,29 @@ func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.log, http.StatusOK, state)
+}
+
+func (s *Server) handleGetAudio(w http.ResponseWriter, r *http.Request) {
+	if s.audio == nil {
+		writeError(w, s.log, http.StatusServiceUnavailable, CodeUnavailable, errNoAudioProvider())
+		return
+	}
+	graph, err := s.audio.AudioGraph(r.Context())
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			writeError(w, s.log, http.StatusServiceUnavailable, CodeUnavailable, fmt.Errorf("audio backend did not answer in time: %w", err))
+			return
+		}
+		writeError(w, s.log, http.StatusInternalServerError, CodeInternal, err)
+		return
+	}
+	writeJSON(w, s.log, http.StatusOK, graph)
+}
+
+func (s *Server) handleGetCapabilities(w http.ResponseWriter, r *http.Request) {
+	if s.capabilities == nil {
+		writeError(w, s.log, http.StatusServiceUnavailable, CodeUnavailable, errNoCapabilitiesProvider())
+		return
+	}
+	writeJSON(w, s.log, http.StatusOK, s.capabilities.Capabilities())
 }

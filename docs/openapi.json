@@ -6,6 +6,54 @@
     "version": "0.0.0"
   },
   "paths": {
+    "/audio": {
+      "get": {
+        "operationId": "getAudio",
+        "summary": "Get the live audio graph",
+        "description": "Live sinks, sources and streams, for the UI's target/app pickers. Streams carry their raw PipeWire property bag and which configured app matchers currently match them.",
+        "responses": {
+          "200": {
+            "description": "The current audio graph.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioGraph"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No audio provider is wired up, or the audio backend didn't answer in time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "summary": "Get what this daemon build actually supports",
+        "description": "Which action types have a registered handler, which target kinds resolve, and which optional features (layers, scenes, learn) are available -- so the UI can reflect reality instead of hard-coding it.",
+        "responses": {
+          "200": {
+            "description": "The current capabilities.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/config": {
       "get": {
         "operationId": "getConfig",
@@ -523,6 +571,36 @@
           "displayName"
         ]
       },
+      "AudioDevice": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "volumePercent": {
+            "type": "number"
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ref",
+          "id",
+          "description",
+          "isDefault"
+        ]
+      },
       "AudioDuckHoldAction": {
         "properties": {
           "target": {
@@ -537,6 +615,40 @@
         "required": [
           "target",
           "duckPercent"
+        ]
+      },
+      "AudioGraph": {
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sinks": {
+            "items": {
+              "$ref": "#/components/schemas/AudioDevice"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AudioDevice"
+            },
+            "type": "array"
+          },
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/AudioStream"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "now",
+          "sinks",
+          "sources",
+          "streams"
         ]
       },
       "AudioSoloToggleAction": {
@@ -564,6 +676,71 @@
         "type": "object",
         "required": [
           "connected"
+        ]
+      },
+      "AudioStream": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "binary": {
+            "type": "string"
+          },
+          "binaryGuess": {
+            "type": "string"
+          },
+          "appName": {
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
+          },
+          "desktopId": {
+            "type": "string"
+          },
+          "mediaName": {
+            "type": "string"
+          },
+          "corked": {
+            "type": "boolean"
+          },
+          "props": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "matcherIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "volumePercent": {
+            "type": "number"
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ref",
+          "id",
+          "direction",
+          "displayName",
+          "corked",
+          "props"
         ]
       },
       "Binding": {
@@ -596,6 +773,65 @@
           "control",
           "gesture",
           "action"
+        ]
+      },
+      "Capabilities": {
+        "properties": {
+          "implementedActions": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "audio.duck_hold",
+                "audio.solo_toggle",
+                "knob.assign_focused_app",
+                "knob.clear",
+                "knob.lock_toggle",
+                "layer.cycle",
+                "layer.latch",
+                "layer.momentary",
+                "media.seek",
+                "media.transport",
+                "mic.push_to_mute",
+                "mic.push_to_talk",
+                "scene.apply",
+                "scene.save",
+                "shell.run",
+                "sink.cycle_default",
+                "volume.adjust",
+                "volume.balance",
+                "volume.follow",
+                "volume.mute_toggle",
+                "volume.set"
+              ]
+            },
+            "type": "array"
+          },
+          "supportedTargetKinds": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "default_sink",
+                "sink",
+                "default_source",
+                "source",
+                "app",
+                "group",
+                "focused",
+                "all_streams"
+              ]
+            },
+            "type": "array"
+          },
+          "features": {
+            "$ref": "#/components/schemas/Features"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "implementedActions",
+          "supportedTargetKinds",
+          "features"
         ]
       },
       "Config": {
@@ -764,6 +1000,26 @@
         "required": [
           "code",
           "message"
+        ]
+      },
+      "Features": {
+        "properties": {
+          "layers": {
+            "type": "boolean"
+          },
+          "scenes": {
+            "type": "boolean"
+          },
+          "learn": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "layers",
+          "scenes",
+          "learn"
         ]
       },
       "FocusState": {

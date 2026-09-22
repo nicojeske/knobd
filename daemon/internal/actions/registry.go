@@ -94,6 +94,19 @@ func (r *Registry) Register(actionType model.ActionType, h Handler) {
 	r.handlers[actionType] = h
 }
 
+// ActionTypes returns every model.ActionType with a registered Handler,
+// in no particular order. This is what GET /capabilities reports as
+// "implementedActions": only this Registry, assembled at daemon startup
+// (cmd/knobd/main.go), actually knows which of model.ActionTypes()' 21
+// entries do anything -- as of this writing, 5 do.
+func (r *Registry) ActionTypes() []model.ActionType {
+	types := make([]model.ActionType, 0, len(r.handlers))
+	for t := range r.handlers {
+		types = append(types, t)
+	}
+	return types
+}
+
 // Execute dispatches inv.Action to its registered Handler.
 func (r *Registry) Execute(ctx context.Context, inv Invocation) error {
 	if inv.Action == nil {

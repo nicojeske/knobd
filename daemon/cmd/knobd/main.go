@@ -190,7 +190,15 @@ func runDaemon(args []string) error {
 
 	status := &connStatus{}
 	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
-	srv := api.New(api.Options{Config: store, State: state, Logger: logger})
+	audioGraph := newAudioGraph(audioSup, store)
+	capabilities := newCapabilitiesProvider(registry)
+	srv := api.New(api.Options{
+		Config:       store,
+		State:        state,
+		Audio:        audioGraph,
+		Capabilities: capabilities,
+		Logger:       logger,
+	})
 
 	logger.Info("serving the local API", "socket", sock)
 

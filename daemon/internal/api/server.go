@@ -57,8 +57,10 @@ func SocketPath() (string, error) {
 // which case the routes that need it answer 503 rather than panicking,
 // which lets a test construct a Server for just the half it cares about.
 type Options struct {
-	Config ConfigStore
-	State  StateProvider
+	Config       ConfigStore
+	State        StateProvider
+	Audio        AudioProvider
+	Capabilities CapabilitiesProvider
 	// Logger receives request lifecycle logging. Nil means slog.Default().
 	Logger *slog.Logger
 }
@@ -66,10 +68,12 @@ type Options struct {
 // Server is knobd's local API surface. It implements http.Handler, so
 // handler tests need no socket at all.
 type Server struct {
-	mux    *http.ServeMux
-	config ConfigStore
-	state  StateProvider
-	log    *slog.Logger
+	mux          *http.ServeMux
+	config       ConfigStore
+	state        StateProvider
+	audio        AudioProvider
+	capabilities CapabilitiesProvider
+	log          *slog.Logger
 }
 
 // New constructs a Server with its routes registered.
@@ -78,7 +82,14 @@ func New(opts Options) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{mux: http.NewServeMux(), config: opts.Config, state: opts.State, log: log}
+	s := &Server{
+		mux:          http.NewServeMux(),
+		config:       opts.Config,
+		state:        opts.State,
+		audio:        opts.Audio,
+		capabilities: opts.Capabilities,
+		log:          log,
+	}
 	s.registerRoutes()
 	return s
 }
@@ -90,9 +101,11 @@ func New(opts Options) *Server {
 // sync, not expected user-facing behavior.
 func (s *Server) handlers() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
-		"getConfig": s.handleGetConfig,
-		"putConfig": s.handlePutConfig,
-		"getState":  s.handleGetState,
+		"getConfig":       s.handleGetConfig,
+		"putConfig":       s.handlePutConfig,
+		"getState":        s.handleGetState,
+		"getAudio":        s.handleGetAudio,
+		"getCapabilities": s.handleGetCapabilities,
 	}
 }
 
