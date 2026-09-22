@@ -138,10 +138,22 @@ func runDaemon(args []string) error {
 	}
 
 	registry := actions.NewRegistry()
-	volumeHandlers := actions.NewVolumeHandlers(audioSup, actions.VolumeOptions{Logger: logger})
+	// eng is assigned below, after Deps needs volumeHandlers -- OnApplied
+	// closes over the variable itself (not its value at closure-creation
+	// time), and is never actually called until well after eng is set,
+	// once Engine.Run is consuming its own dispatcher's writes.
+	var eng *engine.Engine
+	volumeHandlers := actions.NewVolumeHandlers(audioSup, actions.VolumeOptions{
+		Logger: logger,
+		OnApplied: func(audio.Ref, audio.VolumeState) {
+			if eng != nil {
+				eng.NotifyLEDDirty()
+			}
+		},
+	})
 	volumeHandlers.Register(registry)
 
-	eng := engine.New(engine.Deps{
+	eng = engine.New(engine.Deps{
 		Port:     midiSup,
 		Codec:    codec,
 		Audio:    audioSup,
@@ -185,7 +197,7 @@ func runDaemon(args []string) error {
 	go func() { exits <- exit{"engine", eng.Run(runCtx)} }()
 	go func() { exits <- exit{"api", srv.ListenAndServe(runCtx, sock)} }()
 	go func() {
-		watchConnections(runCtx, midiSup, audioSup, status)
+		watchConnections(runCtx, midiSup, audioSup, status, eng, logger)
 		exits <- exit{"connections", nil}
 	}()
 	go func() {

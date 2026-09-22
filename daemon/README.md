@@ -15,7 +15,11 @@ cmd/knobd/          main.go — subcommand dispatch, flag parsing, config
                      monitor` (monitor.go, M02) prints decoded MIDI
                      events; `knobd monitor-audio` (monitor_audio.go,
                      M03) prints the live PipeWire sink/source/stream
-                     graph and its change events.
+                     graph and its change events; `knobd calibrate-leds`
+                     (calibrate.go, M05) sends one raw LED CC/Note
+                     message and exits, for empirically confirming the
+                     ring/button LED byte encoding against the physical
+                     unit.
 cmd/schemagen/       regenerates docs/config.schema.json (`make schema`).
                      A separate binary from knobd so its dependency
                      (github.com/invopop/jsonschema) never links into the
@@ -38,8 +42,10 @@ internal/
                       (watcher.go), and a self-healing, reconnecting
                       Supervisor (supervisor.go).
   device/            Codec interface for the X-Touch Mini's MIDI
-                      encoding. Decode is implemented (M02, xtouch.go).
-                      EncodeLED (LED output): TODO(M05).
+                      encoding. Decode is implemented (M02, xtouch.go);
+                      EncodeLED (M05, led.go) encodes ring/button LED
+                      updates against values confirmed live via `knobd
+                      calibrate-leds`.
   audio/             Backend interface + FakeBackend, and (M03) the real
                       PipeWire backend against pipewire-pulse's
                       PulseAudio-compatible protocol (pulse.go,
@@ -62,6 +68,12 @@ internal/
                       rapid turns/fader moves. SetConfig/Snapshot
                       (state.go) are channel round trips served by the
                       same run goroutine, so there are no mutexes here.
+                      (M05, led.go) also pushes LED updates from that
+                      same goroutine on every resolved volume/mute
+                      change, rate-limited (leading edge + trailing
+                      flush, see ledFlushInterval); RepaintLEDs is
+                      another such round trip, for cmd/knobd's reconnect
+                      hook.
   actions/           Generic action dispatch registry (registry.go) plus
                       (M04) the volume.adjust/set/mute_toggle/follow
                       handlers (volume.go) — the first real

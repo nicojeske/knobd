@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -17,10 +18,11 @@ import (
 // midi.Supervisor.Connected/Disconnected and audio.Supervisor's
 // equivalents are buffered-1, coalescing, single-consumer channels: a
 // second reader would starve the first of events. cmd/knobd is that one
-// consumer for M04. M05 will also want these events, for LED re-push
-// after a reconnect -- when it does, this is the seam to either move
-// ownership into engine or add fan-out to the supervisors, a decision to
-// make deliberately rather than something to trip over.
+// consumer. M05's decision, recorded here as M04 asked: keep ownership
+// in watchConnections rather than adding fan-out to the supervisors --
+// it already was the sole consumer, and it's the natural place to also
+// trigger engine.Engine.RepaintLEDs on a device reconnect, needing no
+// new channel of its own.
 type connStatus struct {
 	mu sync.Mutex
 
@@ -81,13 +83,28 @@ func (c *connStatus) snapshot() (api.DeviceState, api.AudioState) {
 
 // watchConnections is connStatus's single consumer; see its doc comment
 // for why there can only be one. Runs until ctx is done.
-func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *audio.Supervisor, status *connStatus) {
+//
+// On a device reconnect it also calls eng.RepaintLEDs: the X-Touch
+// Mini's rings and buttons don't remember anything across a power
+// cycle, so whatever knobd last believed it had pushed needs rewriting
+// from scratch. RepaintLEDs is a channel round trip like SetConfig, so
+// this blocks watchConnections' loop for its duration (a handful of
+// MIDI writes) -- acceptable since Connected only fires on an actual
+// reconnect, not a hot path.
+func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *audio.Supervisor, status *connStatus, eng *engine.Engine, log *slog.Logger) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case info := <-midiSup.Connected():
 			status.setDeviceConnected(info)
+			if err := eng.RepaintLEDs(ctx); err != nil && ctx.Err() == nil {
+				// Non-fatal: engine.Run may not be consuming yet during
+				// startup's race between the two, or may have already
+				// exited; either way there's nothing watchConnections
+				// can do but log and keep tracking connection status.
+				log.Warn("LED repaint after reconnect failed", "err", err)
+			}
 		case err := <-midiSup.Disconnected():
 			status.setDeviceDisconnected(err)
 		case <-audioSup.Connected():

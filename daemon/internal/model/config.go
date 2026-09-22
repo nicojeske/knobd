@@ -178,16 +178,48 @@ func sceneRefOf(a Action) (string, bool) {
 	}
 }
 
-// Default returns a minimal, valid, empty configuration: one profile
-// named "Default" with no bindings, active. This is what
-// daemon/internal/config writes on first run, before any binding has
-// been made in the UI.
+// Default returns knobd's out-of-the-box configuration: one profile
+// named "Default", active, with a starter mapping for the two controls
+// every unit has regardless of what apps are running -- the system
+// output and input -- plus the fader. This is what
+// daemon/internal/config writes on first run, before the user has
+// touched the UI:
+//
+//   - encoder 1 (turn) / button 1 (press) -> volume.adjust /
+//     volume.mute_toggle on default_sink
+//   - encoder 2 (turn) / button 2 (press) -> volume.adjust /
+//     volume.mute_toggle on default_source
+//   - fader (move) -> volume.follow on default_sink
+//   - encoders/buttons 3-8 are deliberately left unbound, for M06's
+//     knob.assign_focused_app and M07's config UI
+//
+// A binding here doubles as M05's "turn a bound encoder, watch its
+// ring" and "press a mute button, watch its LED" acceptance criteria
+// having something to demonstrate against on a freshly-installed
+// system, not just a hand-edited config.json.
 func Default() Config {
+	defaultSink := Target{Kind: TargetDefaultSink}
+	defaultSource := Target{Kind: TargetDefaultSource}
 	return Config{
 		SchemaVersion:   CurrentSchemaVersion,
 		ActiveProfileID: "default",
 		Profiles: []Profile{
-			{ID: "default", DisplayName: "Default", Bindings: []Binding{}},
+			{
+				ID:          "default",
+				DisplayName: "Default",
+				Bindings: []Binding{
+					{Control: Control{Kind: ControlEncoder, Index: 1}, Gesture: GestureTurn,
+						Action: VolumeAdjustAction{Target: defaultSink, StepPercent: 2}},
+					{Control: Control{Kind: ControlButton, Index: 1}, Gesture: GesturePress,
+						Action: VolumeMuteToggleAction{Target: defaultSink}},
+					{Control: Control{Kind: ControlEncoder, Index: 2}, Gesture: GestureTurn,
+						Action: VolumeAdjustAction{Target: defaultSource, StepPercent: 2}},
+					{Control: Control{Kind: ControlButton, Index: 2}, Gesture: GesturePress,
+						Action: VolumeMuteToggleAction{Target: defaultSource}},
+					{Control: Control{Kind: ControlFader, Index: 1}, Gesture: GestureMove,
+						Action: VolumeFollowAction{Target: defaultSink}},
+				},
+			},
 		},
 		AppMatchers: []AppMatcher{},
 		AppGroups:   []AppGroup{},
