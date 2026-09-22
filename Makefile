@@ -1,4 +1,4 @@
-.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio install-user uninstall-user clean ui-install ui-dev
+.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
@@ -42,6 +42,11 @@ monitor: build ## Print decoded MIDI events without running the full daemon
 
 monitor-audio: build ## Print live PipeWire sinks/sources/streams and change events
 	./$(BIN) monitor-audio
+
+calibrate-leds: build ## Build knobd for LED calibration (run e.g. ./daemon/knobd calibrate-leds -cc 48 -value 0)
+	@echo "built $(BIN); run e.g.:"
+	@echo "    ./$(BIN) calibrate-leds -cc 48 -value 0     # encoder 1's ring"
+	@echo "    ./$(BIN) calibrate-leds -note 89 -velocity 1  # button 1's LED"
 
 install-user: build ## Install knobd + the systemd user unit into ~/.local (M04; full packaging is M12)
 	install -Dm755 $(BIN) $(PREFIX)/bin/knobd

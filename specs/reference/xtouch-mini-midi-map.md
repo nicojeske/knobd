@@ -83,22 +83,54 @@ single free-play session — expect a high message rate from fader moves
 and rate-limit LED/UI updates accordingly rather than acting on every
 one.
 
-## LEDs (buttons and encoder rings) — not yet verified
+## LEDs (buttons and encoder rings) — confirmed 2026-09-22
 
-Writing to the device changes its visible state, so this was
-deliberately not tested live while only planning the project (see the
-plan's stated risk). The following is the documented MC-mode encoding
-for this device family and needs empirical confirmation in
-[M05](../milestones/M05-led-feedback.md) before anything depends on it:
+Verified live against the physical unit via `knobd calibrate-leds` (M05)
+— see [M05](../milestones/M05-led-feedback.md)'s Status section for the
+session notes. Writing to the device changes its visible state, which is
+why this table stayed unconfirmed through M02–M04's read-only planning.
 
-- **Button LEDs**: Note On, channel 1, same note numbers as the button
-  itself, velocity `0` = off, `1` = on, `2` = blinking.
+- **Button LEDs** (grid buttons, side buttons): Note On, channel 1, same
+  note numbers as the button itself (see the tables above — verified
+  directly for button 1 (note 89), button 9 (note 87), and both side
+  buttons (84/85); addressing generalizes to the rest by the same
+  table). Velocity:
+  - `0` = off
+  - `1`–`2` = blinking
+  - `3`–`127` = solid on
+
+  This is the **opposite** of the publicly-documented guess this section
+  used to carry (`0`/`1`/`2` = off/on/blinking) — the blink range is at
+  the *bottom* of the scale, not velocity `2` alone. knobd uses velocity
+  `0` for off and `127` for on; nothing currently uses blinking.
+
+  Encoder pushes (notes 32–39) and the fader have **no LED at all** —
+  confirmed by sending full-velocity Note On to note 32 (encoder 1's
+  push) and observing no response anywhere, on the push or its ring.
+
 - **Encoder rings**: CC **48–55**, channel 1 (encoder 1 → CC 48, ...,
-  encoder 8 → CC 55). Value encodes both a display mode and a ring
-  position: `value = (mode << 4) | position`, with `position` in
-  `0–12` (13 LEDs around the ring) and `mode` one of single-dot, pan,
-  fan, or spread (the exact 2-bit mode values are the first thing M05's
-  calibration step should pin down).
+  encoder 8 → CC 55 — verified directly on CC 48 and CC 55, the two
+  ends of the range). `value = (mode << 4) | position`.
+
+  The ring has 13 physical LED segments, but only **11 are individually
+  addressable** (physical LEDs 2–12); the two end segments (1 and 13)
+  never light from any position value — they read as fixed bezel marks,
+  not real LEDs. So `position` is `0–11`: `0` is off, `1`–`11` address
+  the 11 real LEDs in order, and any value `> 11` clamps at position 11
+  rather than erroring or wrapping (verified: 11, 12, and 15 all look
+  identical).
+
+  `mode` (bits 4–5) is one of four values, all verified:
+
+  | mode | name | appearance |
+  |---|---|---|
+  | `0` | single-dot | exactly one LED lit, at `position` |
+  | `1` | pan | a 3-LED-wide bar centered near `position`, sliding along the ring |
+  | `2` | fill | a growing bar from LED 2 through `position + 1` — `position` LEDs lit, starting at the addressable end. **This is the mode knobd uses for volume display**: `position = round(percent/100 * 11)` gives a natural 0–100% bar, `0` empty, `11` fully lit. |
+  | `3` | spread | a bar that grows symmetrically outward from the ring's center |
+
+  Modes 1 and 3 are documented here for completeness; knobd's `EncodeLED`
+  only emits mode 2.
 
 ## Standard mode (not currently in use)
 
