@@ -13,9 +13,9 @@ code diverged from it by mistake (fix the code).
 reference/    Facts: the hardware protocol, the dev environment, the
               full brainstormed action catalog. Not milestones —
               things every milestone can cite instead of re-deriving.
-adr/          Architecture Decision Records: the four load-bearing
-              decisions behind the daemon's structure, and why the
-              alternatives were rejected.
+adr/          Architecture Decision Records: the load-bearing decisions
+              behind the daemon's structure, and why the alternatives
+              were rejected.
 milestones/   M01-M12: one file per unit of work, in dependency order.
 ```
 
@@ -28,7 +28,7 @@ milestones/   M01-M12: one file per unit of work, in dependency order.
 | [M03](milestones/M03-audio-control.md) | Audio control | Done | M01 |
 | [M04](milestones/M04-mapping-engine-daemon.md) | Mapping engine & daemon | Done | M02, M03 |
 | [M05](milestones/M05-led-feedback.md) | LED feedback | Done | M04 |
-| [M06](milestones/M06-focus-tracking.md) | Focus tracking | Not started | M04 |
+| [M06](milestones/M06-focus-tracking.md) | Focus tracking | Done | M04 |
 | [M07](milestones/M07-config-ui.md) | Config UI | Not started | M04 |
 | [M08](milestones/M08-layers-groups-scenes.md) | Layers, groups, scenes | Not started | M04, M07 |
 | [M09](milestones/M09-media-transport-mpris.md) | Media transport (MPRIS) | Not started | M04 |

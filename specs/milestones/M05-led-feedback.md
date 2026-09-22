@@ -155,14 +155,12 @@ individually addressable).
       movement (rate-limiting works). Verified: sweeping the fader
       end to end kept the bound ring's LEDs visibly smooth, no
       stutter.
-- [ ] Assigning a knob to the focused app (`knob.assign_focused_app`)
-      flashes a confirmation — **cannot be done in M05**: that handler
-      is M06's, and M06 hasn't been built yet. This isn't in the
-      original checklist above (it's part of the Goal, not the
-      Acceptance criteria list), noted here so it isn't silently
-      forgotten; M06 should wire its handler to call into `led.go`'s
-      flash mechanism once it exists, or this milestone should add one
-      then if a seam isn't already in place.
+- [x] Assigning a knob to the focused app (`knob.assign_focused_app`)
+      flashes a confirmation — done in M06:
+      `engine.Engine.FlashControl` (`daemon/internal/engine/led.go`)
+      renders a 400ms full ring fill, wired from
+      `actions.AssignOptions.OnAssigned` so it fires only once the new
+      binding is durably persisted.
 
 ## Verification
 
