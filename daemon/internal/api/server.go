@@ -7,15 +7,15 @@
 //
 // api depends on daemon/internal/model only, never on
 // daemon/internal/engine or daemon/internal/config: the daemon
-// (cmd/knobd) supplies a ConfigStore and a StateProvider, two small
-// interfaces defined at their point of use here, and does the
-// translation to/from engine.Snapshot and config.Save itself.
+// (cmd/knobd) supplies a ConfigStore, a StateProvider and (as of M07) an
+// AudioProvider and a LearnController -- small interfaces defined at
+// their point of use here -- and does the translation to/from
+// engine.Snapshot and config.Save itself.
 //
-// TODO(M07): implement the WebSocket push channel for live state (knob
-// positions, resolved volumes, focus changes) the config UI subscribes
-// to, and add OpenAPI spec emission (see the Makefile's `schema`
-// target) so ui/'s TypeScript client can be generated rather than
-// hand-written.
+// The route table (routes.go) is the single declaration of this
+// package's surface: registerRoutes builds the mux from it, and
+// daemon/internal/schema emits docs/openapi.json from the same table,
+// so the two cannot drift apart.
 package api
 
 import (
@@ -83,10 +83,28 @@ func New(opts Options) *Server {
 	return s
 }
 
+// handlers maps every Route's OperationID to the handler that serves it.
+// registerRoutes panics if a Route has no entry here, or if an entry has
+// no matching Route -- routes_test.go asserts that never happens, so the
+// panic is a should-never-fire guard against the two falling out of
+// sync, not expected user-facing behavior.
+func (s *Server) handlers() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		"getConfig": s.handleGetConfig,
+		"putConfig": s.handlePutConfig,
+		"getState":  s.handleGetState,
+	}
+}
+
 func (s *Server) registerRoutes() {
-	s.mux.HandleFunc("GET /config", s.handleGetConfig)
-	s.mux.HandleFunc("PUT /config", s.handlePutConfig)
-	s.mux.HandleFunc("GET /state", s.handleGetState)
+	handlers := s.handlers()
+	for _, route := range Routes() {
+		h, ok := handlers[route.OperationID]
+		if !ok {
+			panic(fmt.Sprintf("api: no handler registered for route %s %s (operationId %q)", route.Method, route.Path, route.OperationID))
+		}
+		s.mux.HandleFunc(route.Method+" "+route.Path, h)
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
