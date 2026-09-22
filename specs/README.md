@@ -27,7 +27,7 @@ milestones/   M01-M12: one file per unit of work, in dependency order.
 | [M02](milestones/M02-midi-transport.md) | MIDI transport | Done | M01 |
 | [M03](milestones/M03-audio-control.md) | Audio control | Done | M01 |
 | [M04](milestones/M04-mapping-engine-daemon.md) | Mapping engine & daemon | Done | M02, M03 |
-| [M05](milestones/M05-led-feedback.md) | LED feedback | Not started | M04 |
+| [M05](milestones/M05-led-feedback.md) | LED feedback | Done | M04 |
 | [M06](milestones/M06-focus-tracking.md) | Focus tracking | Not started | M04 |
 | [M07](milestones/M07-config-ui.md) | Config UI | Not started | M04 |
 | [M08](milestones/M08-layers-groups-scenes.md) | Layers, groups, scenes | Not started | M04, M07 |
