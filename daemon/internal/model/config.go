@@ -190,8 +190,13 @@ func sceneRefOf(a Action) (string, bool) {
 //   - encoder 2 (turn) / button 2 (press) -> volume.adjust /
 //     volume.mute_toggle on default_source
 //   - fader (move) -> volume.follow on default_sink
-//   - encoders/buttons 3-8 are deliberately left unbound, for M06's
-//     knob.assign_focused_app and M07's config UI
+//   - encoder-pushes 3-8 (hold) -> knob.assign_focused_app, so a
+//     freshly-installed system can demonstrate M06's "hold a knob,
+//     grab the focused app" feature immediately, with no config
+//     editing required. Encoders/buttons 3-8 themselves are still left
+//     unbound (a knob.assign_focused_app hold is what binds an
+//     encoder's turn, once used) -- see
+//     specs/milestones/M06-focus-tracking.md.
 //
 // A binding here doubles as M05's "turn a bound encoder, watch its
 // ring" and "press a mute button, watch its LED" acceptance criteria
@@ -200,6 +205,24 @@ func sceneRefOf(a Action) (string, bool) {
 func Default() Config {
 	defaultSink := Target{Kind: TargetDefaultSink}
 	defaultSource := Target{Kind: TargetDefaultSource}
+	bindings := []Binding{
+		{Control: Control{Kind: ControlEncoder, Index: 1}, Gesture: GestureTurn,
+			Action: VolumeAdjustAction{Target: defaultSink, StepPercent: 2}},
+		{Control: Control{Kind: ControlButton, Index: 1}, Gesture: GesturePress,
+			Action: VolumeMuteToggleAction{Target: defaultSink}},
+		{Control: Control{Kind: ControlEncoder, Index: 2}, Gesture: GestureTurn,
+			Action: VolumeAdjustAction{Target: defaultSource, StepPercent: 2}},
+		{Control: Control{Kind: ControlButton, Index: 2}, Gesture: GesturePress,
+			Action: VolumeMuteToggleAction{Target: defaultSource}},
+		{Control: Control{Kind: ControlFader, Index: 1}, Gesture: GestureMove,
+			Action: VolumeFollowAction{Target: defaultSink}},
+	}
+	for i := 3; i <= 8; i++ {
+		bindings = append(bindings, Binding{
+			Control: Control{Kind: ControlEncoderPush, Index: i}, Gesture: GestureHold,
+			Action: KnobAssignFocusedAppAction{},
+		})
+	}
 	return Config{
 		SchemaVersion:   CurrentSchemaVersion,
 		ActiveProfileID: "default",
@@ -207,18 +230,7 @@ func Default() Config {
 			{
 				ID:          "default",
 				DisplayName: "Default",
-				Bindings: []Binding{
-					{Control: Control{Kind: ControlEncoder, Index: 1}, Gesture: GestureTurn,
-						Action: VolumeAdjustAction{Target: defaultSink, StepPercent: 2}},
-					{Control: Control{Kind: ControlButton, Index: 1}, Gesture: GesturePress,
-						Action: VolumeMuteToggleAction{Target: defaultSink}},
-					{Control: Control{Kind: ControlEncoder, Index: 2}, Gesture: GestureTurn,
-						Action: VolumeAdjustAction{Target: defaultSource, StepPercent: 2}},
-					{Control: Control{Kind: ControlButton, Index: 2}, Gesture: GesturePress,
-						Action: VolumeMuteToggleAction{Target: defaultSource}},
-					{Control: Control{Kind: ControlFader, Index: 1}, Gesture: GestureMove,
-						Action: VolumeFollowAction{Target: defaultSink}},
-				},
+				Bindings:    bindings,
 			},
 		},
 		AppMatchers: []AppMatcher{},

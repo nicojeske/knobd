@@ -30,8 +30,8 @@ func TestDefaultConfigStarterBindings(t *testing.T) {
 		{Control{Kind: ControlButton, Index: 2}, GesturePress, Target{Kind: TargetDefaultSource}},
 		{Control{Kind: ControlFader, Index: 1}, GestureMove, Target{Kind: TargetDefaultSink}},
 	}
-	if len(bindings) != len(want) {
-		t.Fatalf("Default() has %d bindings, want %d", len(bindings), len(want))
+	if len(bindings) != len(want)+6 { // +6 for the encoder-push 3-8 assign bindings, below
+		t.Fatalf("Default() has %d bindings, want %d", len(bindings), len(want)+6)
 	}
 	for i, w := range want {
 		b := bindings[i]
@@ -44,17 +44,35 @@ func TestDefaultConfigStarterBindings(t *testing.T) {
 		}
 	}
 
-	// Encoders/buttons 3-8 are deliberately left unbound.
-	bound := make(map[Control]bool)
+	bound := make(map[Control]Binding)
 	for _, b := range bindings {
-		bound[b.Control] = true
+		bound[b.Control] = b
 	}
+
+	// Encoders/buttons 3-8 themselves are still left unbound.
 	for i := 3; i <= 8; i++ {
-		if bound[Control{Kind: ControlEncoder, Index: i}] {
+		if _, ok := bound[Control{Kind: ControlEncoder, Index: i}]; ok {
 			t.Errorf("encoder %d unexpectedly bound in Default()", i)
 		}
-		if bound[Control{Kind: ControlButton, Index: i}] {
+		if _, ok := bound[Control{Kind: ControlButton, Index: i}]; ok {
 			t.Errorf("button %d unexpectedly bound in Default()", i)
+		}
+	}
+
+	// M06: encoder-push 3-8's hold is bound to knob.assign_focused_app,
+	// so a freshly-installed system can demonstrate the feature with no
+	// config editing.
+	for i := 3; i <= 8; i++ {
+		b, ok := bound[Control{Kind: ControlEncoderPush, Index: i}]
+		if !ok {
+			t.Errorf("encoder_push %d not bound in Default()", i)
+			continue
+		}
+		if b.Gesture != GestureHold {
+			t.Errorf("encoder_push %d bound on gesture %v, want %v", i, b.Gesture, GestureHold)
+		}
+		if _, ok := b.Action.(KnobAssignFocusedAppAction); !ok {
+			t.Errorf("encoder_push %d action = %T, want KnobAssignFocusedAppAction", i, b.Action)
 		}
 	}
 }

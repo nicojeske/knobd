@@ -101,6 +101,9 @@ func (a AppInfo) DisplayName() string {
 		if t := trimVendorPrefix(tok); t != "" {
 			candidates = append(candidates, t)
 		}
+		if t := lastDotSegment(tok); t != "" {
+			candidates = append(candidates, t)
+		}
 	}
 	consider(a.ResourceClass)
 	consider(strings.TrimSuffix(a.DesktopFileID, ".desktop"))

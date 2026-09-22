@@ -112,6 +112,8 @@ type Engine struct {
 	// reconnect (see that file's doc comment for why it's the sole
 	// consumer of midi.Supervisor.Connected).
 	repaintCh chan chan struct{}
+	// flashCh serves FlashControl -- see its doc comment in led.go.
+	flashCh chan flashRequest
 }
 
 type configRequest struct {
@@ -130,6 +132,7 @@ func New(deps Deps) *Engine {
 		snapshotCh: make(chan chan Snapshot),
 		ledCh:      make(chan struct{}, 1),
 		repaintCh:  make(chan chan struct{}),
+		flashCh:    make(chan flashRequest, 1),
 	}
 }
 
@@ -314,12 +317,31 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 
 		var ledTimerC <-chan time.Time
+		now := e.clk.Now()
+		var ledWake time.Duration
+		haveLEDWake := false
 		if leds.dirty {
-			d := ledFlushInterval - e.clk.Now().Sub(leds.lastPush)
+			d := ledFlushInterval - now.Sub(leds.lastPush)
 			if d < 0 {
 				d = 0
 			}
-			ledTimer.Reset(d)
+			ledWake, haveLEDWake = d, true
+		}
+		// An active override also needs its own wake, independent of
+		// leds.dirty: nothing else would otherwise notice that its
+		// deadline passed and flush the reverted state -- see
+		// FlashControl and ledDesired's override pass.
+		if !leds.override.until.IsZero() {
+			d := leds.override.until.Sub(now)
+			if d < 0 {
+				d = 0
+			}
+			if !haveLEDWake || d < ledWake {
+				ledWake, haveLEDWake = d, true
+			}
+		}
+		if haveLEDWake {
+			ledTimer.Reset(ledWake)
 			ledTimerC = ledTimer.C()
 		}
 
@@ -423,6 +445,13 @@ func (e *Engine) Run(ctx context.Context) error {
 			case reply <- struct{}{}:
 			default:
 			}
+
+		case req := <-e.flashCh:
+			leds.override = ledOverride{
+				updates: map[model.Control]device.LEDUpdate{req.control: flashUpdate(req.control)},
+				until:   e.clk.Now().Add(req.duration),
+			}
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
 		}
 	}
 }

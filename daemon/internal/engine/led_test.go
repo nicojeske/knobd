@@ -321,3 +321,88 @@ func TestEngineRunRepaintLEDsForcesFullRewrite(t *testing.T) {
 		t.Errorf("RepaintLEDs wrote %d new messages, want more than 0 (a full repaint, not a no-op diff)", got-before)
 	}
 }
+
+// TestEngineFlashControlOverridesThenReverts is knob.assign_focused_app's
+// confirmation flash (M06, closing the item M05 deferred): a bound
+// encoder's ring briefly renders a full fill regardless of its actual
+// resolved volume, then reverts on its own once the flash duration
+// elapses -- with no further external trigger, proving the timer-arming
+// logic (not just the leading-edge write) is what makes it revert.
+func TestEngineFlashControlOverridesThenReverts(t *testing.T) {
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	ref := audio.Ref{Kind: audio.RefStream, ID: "1"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		AppMatchers:     []model.AppMatcher{{ID: "vesktop", AppNames: []string{"vesktop"}}},
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetApp, Ref: "vesktop"}, StepPercent: 10}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngine(cfg, clk)
+	backend.Seed(nil, nil, []audio.Stream{{ID: "1", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "vesktop"}}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	waitForResolved(t, e, enc1, model.GestureTurn)
+
+	// Same setup as TestEngineRunLEDRingTracksVolume: turn counter-
+	// clockwise by 4 to bring the real, cached volume to 60% -- a value
+	// distinguishable from the flash's own full fill (100% would render
+	// identically).
+	mustInject(t, ctx, port, midi.Message{Status: 0xB0, Data1: 16, Data2: 68, Time: clk.Now()})
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), ref)
+		return err == nil && st.Percent == 60
+	})
+	clk.Advance(ledFlushInterval) // release the trailing flush of the real 60% state
+	waitFor(t, 2*time.Second, func() bool {
+		w := ringWrites(port, 1)
+		return len(w) > 0 && w[len(w)-1].Data2 == fillValue(60)
+	})
+
+	const flashDuration = 400 * time.Millisecond
+	e.FlashControl(enc1, flashDuration)
+	clk.Advance(ledFlushInterval) // release the flash's own trailing flush, same throttle as any other LED write
+
+	waitFor(t, 2*time.Second, func() bool {
+		writes := ringWrites(port, 1)
+		return len(writes) > 0 && writes[len(writes)-1].Data2 == fillValue(100)
+	})
+
+	// Nothing else touches the engine from here; only time passing
+	// should revert this. Advancing past the flash duration must be
+	// sufficient on its own.
+	clk.Advance(flashDuration + time.Millisecond)
+
+	waitFor(t, 2*time.Second, func() bool {
+		writes := ringWrites(port, 1)
+		return len(writes) > 0 && writes[len(writes)-1].Data2 == fillValue(60)
+	})
+}
+
+// TestEngineFlashControlIsANoopWhenRunIsNotConsuming pins FlashControl's
+// documented behavior (mirroring NotifyLEDDirty): calling it before Run
+// starts, or after it has returned, must never block or panic.
+func TestEngineFlashControlIsANoopWhenRunIsNotConsuming(t *testing.T) {
+	clk := newTestClock(time.Unix(0, 0))
+	e, _, _ := newTestEngine(model.Config{ActiveProfileID: "default", Profiles: []model.Profile{{ID: "default"}}}, clk)
+
+	done := make(chan struct{})
+	go func() {
+		e.FlashControl(model.Control{Kind: model.ControlEncoder, Index: 1}, DefaultFlashDuration)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("FlashControl blocked with Run not yet started")
+	}
+}

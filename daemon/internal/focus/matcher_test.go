@@ -94,7 +94,7 @@ func TestDisplayName(t *testing.T) {
 		{"brave-browser resourceClass", AppInfo{ResourceClass: "brave-browser"}, "Brave"},
 		{"google-chrome resourceClass", AppInfo{ResourceClass: "google-chrome"}, "Chrome"},
 		{"plain resourceClass, no normalization", AppInfo{ResourceClass: "vesktop"}, "Vesktop"},
-		{"desktopFileID reverse-DNS", AppInfo{DesktopFileID: "org.kde.dolphin.desktop"}, "Org.kde.dolphin"},
+		{"desktopFileID reverse-DNS", AppInfo{DesktopFileID: "org.kde.dolphin.desktop"}, "Dolphin"},
 		{"caption alone yields nothing", AppInfo{Caption: "YouTube - Brave"}, ""},
 		{"nothing at all", AppInfo{}, ""},
 	}

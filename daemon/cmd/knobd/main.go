@@ -27,6 +27,7 @@ import (
 	"github.com/njeske/knobd/internal/engine"
 	"github.com/njeske/knobd/internal/focus"
 	"github.com/njeske/knobd/internal/midi"
+	"github.com/njeske/knobd/internal/model"
 )
 
 func main() {
@@ -171,6 +172,22 @@ func runDaemon(args []string) error {
 	})
 
 	store := newConfigStore(path, cfg, eng, logger)
+
+	assignHandlers := actions.NewAssignHandlers(store, focusProv, actions.AssignOptions{
+		Logger: logger,
+		OnAssigned: func(control model.Control, matcher model.AppMatcher) {
+			if eng != nil {
+				eng.FlashControl(control, engine.DefaultFlashDuration)
+			}
+		},
+	})
+	// Must run before the eng.Run goroutine below starts: Registry's map
+	// isn't safe to mutate concurrently with Execute, and every handler
+	// in this codebase is registered once at startup for that reason
+	// (see volumeHandlers.Register above and actions.Registry's doc
+	// comment).
+	assignHandlers.Register(registry)
+
 	status := &connStatus{}
 	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
 	srv := api.New(api.Options{Config: store, State: state, Logger: logger})

@@ -39,6 +39,23 @@ type ledState struct {
 	// lastPush is when flush last actually ran (successfully or not),
 	// the reference point markLEDsDirty and Run's timer-arming both use.
 	lastPush time.Time
+	// override is a momentary confirmation flash (see FlashControl):
+	// ledDesired renders it in place of a control's normally-computed
+	// state until its deadline passes, at which point it reverts on its
+	// own -- see Run's ledTimerC arming, which also wakes for this
+	// deadline. Zero value (nil updates, zero until) means no active
+	// override.
+	override ledOverride
+}
+
+// ledOverride is a temporary rendering that wins over ledDesired's
+// normally-computed state, for FlashControl's confirmation flash. Only
+// one is ever active at a time -- a second FlashControl call replaces
+// it wholesale, which is fine for what this exists for (a single
+// deliberate user gesture at a time).
+type ledOverride struct {
+	updates map[model.Control]device.LEDUpdate
+	until   time.Time
 }
 
 func newLEDState() *ledState {
@@ -81,7 +98,16 @@ func (e *Engine) flushLEDs(ctx context.Context, cfg model.Config, bindings *bind
 	leds.dirty = false
 	leds.lastPush = e.clk.Now()
 
-	for c, upd := range e.ledDesired(cfg, bindings, res, layer) {
+	// Clear an expired override before computing desired state: once
+	// its deadline has passed it must never win over the real
+	// resolved state again, and clearing until back to its zero value
+	// here is also what stops Run's timer-arming from busy-looping on
+	// a deadline that's already behind it.
+	if !leds.override.until.IsZero() && !e.clk.Now().Before(leds.override.until) {
+		leds.override = ledOverride{}
+	}
+
+	for c, upd := range e.ledDesired(cfg, bindings, res, layer, leds) {
 		if prev, ok := leds.lastPushed[c]; ok && prev == upd {
 			continue
 		}
@@ -135,10 +161,11 @@ func buildLEDControls() []model.Control {
 
 // ledDesired computes what every LED-bearing control should currently
 // show: blank/off by default (ledControls), overridden by whatever the
-// active bindings resolve to. It reuses buildSnapshot's existing
-// (Control -> Target -> Refs -> cached volume) join rather than walking
-// bindings a second way.
-func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resolver, layer int) map[model.Control]device.LEDUpdate {
+// active bindings resolve to, finally overridden again by leds.override
+// if one is active -- see FlashControl. It reuses buildSnapshot's
+// existing (Control -> Target -> Refs -> cached volume) join rather than
+// walking bindings a second way.
+func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resolver, layer int, leds *ledState) map[model.Control]device.LEDUpdate {
 	desired := make(map[model.Control]device.LEDUpdate, len(ledControls))
 	for _, c := range ledControls {
 		desired[c] = ledOffUpdate(c)
@@ -156,6 +183,12 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 			if cs.ActionType == model.ActionVolumeMuteToggle {
 				desired[cs.Control] = ledButtonUpdate(cs.Control, cs.Volume)
 			}
+		}
+	}
+
+	if !leds.override.until.IsZero() && e.clk.Now().Before(leds.override.until) {
+		for c, upd := range leds.override.updates {
+			desired[c] = upd
 		}
 	}
 	return desired
@@ -240,4 +273,50 @@ func deviceRefsBoundToTargets(bindings *bindingIndex, res *resolver, layer int) 
 		}
 	}
 	return refs
+}
+
+// DefaultFlashDuration is how long FlashControl's confirmation flash
+// lasts before c's ring reverts to reflecting its actually-resolved
+// state.
+const DefaultFlashDuration = 400 * time.Millisecond
+
+// flashRequest is FlashControl's payload to Run's flashCh.
+type flashRequest struct {
+	control  model.Control
+	duration time.Duration
+}
+
+// FlashControl asks the run loop to render c as a momentary full ring
+// fill for d (see flashUpdate), overriding whatever its bound target
+// would otherwise show, until d elapses. This is
+// knob.assign_focused_app's confirmation that a rebind actually took --
+// see actions.AssignOptions.OnAssigned, wired from cmd/knobd/main.go to
+// fire only after the new binding is durably persisted, so the flash
+// means "saved", not "attempted" (closes the item M05 deferred to this
+// milestone, specs/milestones/M05-led-feedback.md).
+//
+// Safe to call concurrently with Run, including from a different
+// goroutine than Run's own, mirroring NotifyLEDDirty. A no-op if Run
+// isn't consuming (not started yet, or already returned); a flash
+// request while one is already pending is dropped rather than queued --
+// two confirmation flashes this close together aren't worth a second
+// wire write over each other, and the newer request would have nothing
+// distinguishable to add.
+func (e *Engine) FlashControl(c model.Control, d time.Duration) {
+	select {
+	case e.flashCh <- flashRequest{control: c, duration: d}:
+	default:
+	}
+}
+
+// flashUpdate is the rendering FlashControl asks for: a full ring fill
+// for an encoder (the only control kind knob.assign_focused_app ever
+// flashes -- its assign gesture is a hold on the encoder_push, but an
+// encoder_push has no LED of its own, so the confirmation renders on
+// its paired encoder's ring instead), or simply on for anything else.
+func flashUpdate(c model.Control) device.LEDUpdate {
+	if c.Kind == model.ControlEncoder {
+		return device.LEDUpdate{Control: c, Mode: device.LEDModeFill, Position: device.MaxRingPosition}
+	}
+	return device.LEDUpdate{Control: c, On: true}
 }
