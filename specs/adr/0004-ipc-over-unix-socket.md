@@ -62,3 +62,39 @@ security model.
 - Debugging the API by hand needs `curl --unix-socket` instead of a
   plain URL — slightly less convenient than a TCP port, judged an
   acceptable cost for the security property.
+
+## Update (M07)
+
+The live-state channel shipped as **Server-Sent Events** (`GET /events`,
+compact JSON per frame, `event: <type>\ndata: <json>\n\n`), not
+WebSocket as originally written above. The decision this ADR actually
+made — unix socket, not TCP; filesystem permissions as the entire
+access control mechanism; the Rust side holds the connection and the
+webview never touches the socket — is unchanged. Only the streaming
+transport differs from what "HTTP + WebSocket" implied, for reasons
+specific to what M07 actually needed:
+
+- The channel is strictly one-directional (daemon → UI). Entering MIDI
+  learn is `POST /learn`, not a client→server frame, so there was never
+  a use for WebSocket's bidirectionality here.
+- SSE needs no new dependency on either side: the daemon already needs
+  an HTTP client/server (`net/http`) for `GET`/`PUT /config`, and the
+  Tauri bridge already needs `hyper` for the same reason. WebSocket
+  would have added `coder/websocket` (or similar) daemon-side and
+  `tokio-tungstenite` in the Rust bridge, plus an awkward handshake URL
+  for a connection that isn't really going to a URL at all.
+- SSE preserves this ADR's `curl --unix-socket` debuggability
+  consequence (above) for the streaming endpoint too:
+  `curl -N --unix-socket $XDG_RUNTIME_DIR/knobd.sock http://localhost/events`
+  prints live frames. A WebSocket upgrade has no equivalent one-liner.
+- An SSE response is an ordinary long-lived HTTP response, not a
+  hijacked connection — `http.Server.Shutdown` (with a `BaseContext`
+  tying request contexts to the daemon's shutdown context) accounts for
+  it automatically. A hijacked WebSocket connection would need the hub
+  to track and close every connection itself for graceful shutdown to
+  work at all.
+
+All hub/framing logic lives behind a transport-agnostic interface in
+`daemon/internal/api` (see `M07-config-ui.md`), specifically so that if
+bidirectional push is ever actually needed, swapping the transport is
+one file, not a redesign.

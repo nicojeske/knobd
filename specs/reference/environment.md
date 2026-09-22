@@ -1,10 +1,11 @@
 # Development environment
 
 Facts verified live on the development machine on 2026-09-20, while
-scaffolding this project. Every milestone's design should be checked
-against these rather than assumed; re-verify anything here that a later
-session finds has changed (a distro upgrade, a Plasma major version
-bump, etc.) and update this file when it does.
+scaffolding this project (toolchain table re-verified 2026-09-23 for
+M07). Every milestone's design should be checked against these rather
+than assumed; re-verify anything here that a later session finds has
+changed (a distro upgrade, a Plasma major version bump, etc.) and
+update this file when it does.
 
 ## OS / desktop
 
@@ -46,16 +47,28 @@ bump, etc.) and update this file when it does.
 | Go | 1.27.1 | Daemon language |
 | Node | 26.8.2 | UI tooling |
 | npm | 12.0.2 | |
-| Rust / cargo | **not installed** | Required for Tauri (M07); not needed before then |
+| Rust / cargo | **1.98.1** (rustup 1.29.1) | Installed 2026-09-23 for M07, via pacman's `rustup` package (`rustup default stable`); shim at `/usr/bin/cargo` |
 | golangci-lint | **not installed** | `make lint` falls back to `gofmt`+`go vet` when absent |
 | git | 2.55.0 | |
 
-Installing Rust for M07:
+Every Tauri v2 Linux system dependency was already present when Rust
+was installed: `webkit2gtk-4.1` 2.52.6, `javascriptcoregtk-4.1` 2.52.6,
+`libsoup-3.0` 3.6.6, `gtk+-3.0` 3.24.52, `openssl` 3.6.4, and
+`ayatana-appindicator3-0.1` 0.6.0 (the tray icon's actual dependency on
+this system — **not** `libappindicator-gtk3`, which the install
+snippet below used to name; Arch/CachyOS packages this as
+`libayatana-appindicator`). `patchelf` is **not installed**, which
+blocks Tauri's AppImage bundler specifically (deb/rpm bundling is pure
+Rust and unaffected) — see `specs/milestones/M07-config-ui.md`'s Risks.
+
+Installing Rust (already done on this machine; kept here for a fresh
+machine):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-# plus, on Arch/CachyOS, the Tauri Linux prerequisites:
-sudo pacman -S webkit2gtk-4.1 libappindicator-gtk3 librsvg patchelf
+sudo pacman -S rustup
+rustup default stable
+# Tauri Linux prerequisites, if not already present:
+sudo pacman -S webkit2gtk-4.1 libayatana-appindicator librsvg patchelf
 ```
 
 ## Permissions
