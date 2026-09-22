@@ -95,18 +95,26 @@ const (
 	// GestureDoublePress fires instead of a second GesturePress when two
 	// presses land inside the double-press window.
 	GestureDoublePress Gesture = "double_press"
+	// GestureMove fires on every absolute fader position update. Unlike
+	// every other gesture it carries no press/release semantics — the
+	// fader is a continuous control, not a button — and it is the only
+	// gesture ControlFader supports (see SupportsGesture). A binding on
+	// GestureMove is expected to read the event's absolute value (see
+	// engine.Invocation.Value), not a detent delta.
+	GestureMove Gesture = "move"
 )
 
 // Gestures returns every valid Gesture, for validation and for
 // daemon/internal/schema's enum generation.
 func Gestures() []Gesture {
-	return []Gesture{GestureTurn, GesturePress, GestureHold, GestureRelease, GestureDoublePress}
+	return []Gesture{GestureTurn, GesturePress, GestureHold, GestureRelease, GestureDoublePress, GestureMove}
 }
 
 // SupportsGesture reports whether a gesture is meaningful for a control
-// kind. The fader currently only ever produces absolute position updates
-// and is modeled as a continuous target write rather than a gesture; see
-// specs/milestones/M04-mapping-engine-daemon.md.
+// kind. The fader produces absolute position updates rather than
+// discrete presses or relative turns, so it supports GestureMove alone
+// — see specs/milestones/M04-mapping-engine-daemon.md for why a fader
+// binding fires on GestureMove instead of GestureTurn/GesturePress.
 func (k ControlKind) SupportsGesture(g Gesture) bool {
 	switch k {
 	case ControlEncoder:
@@ -114,7 +122,7 @@ func (k ControlKind) SupportsGesture(g Gesture) bool {
 	case ControlEncoderPush, ControlButton, ControlSideButton:
 		return g == GesturePress || g == GestureHold || g == GestureRelease || g == GestureDoublePress
 	case ControlFader:
-		return false
+		return g == GestureMove
 	default:
 		return false
 	}

@@ -47,7 +47,16 @@ func TestControlKindSupportsGesture(t *testing.T) {
 		t.Error("button should not support turn")
 	}
 	if ControlFader.SupportsGesture(GesturePress) {
-		t.Error("fader should not support any gesture yet")
+		t.Error("fader should not support press")
+	}
+	if ControlFader.SupportsGesture(GestureTurn) {
+		t.Error("fader should not support turn")
+	}
+	if !ControlFader.SupportsGesture(GestureMove) {
+		t.Error("fader should support move")
+	}
+	if ControlEncoder.SupportsGesture(GestureMove) {
+		t.Error("encoder should not support move")
 	}
 }
 
@@ -56,7 +65,7 @@ func TestControlKindSupportsGesture(t *testing.T) {
 // (schema generation trusts ControlKinds() as the full enum).
 func TestControlKindsComplete(t *testing.T) {
 	for _, k := range ControlKinds() {
-		if err := (Control{Kind: k, Index: 1}).Validate(); err != nil && k != ControlFader {
+		if err := (Control{Kind: k, Index: 1}).Validate(); err != nil {
 			t.Errorf("Control{Kind: %q, Index: 1}.Validate() = %v, want nil", k, err)
 		}
 	}
@@ -69,8 +78,8 @@ func TestControlKindsComplete(t *testing.T) {
 // ControlKind.SupportsGesture.
 func TestGesturesComplete(t *testing.T) {
 	gestures := Gestures()
-	if len(gestures) != 5 {
-		t.Fatalf("Gestures() returned %d gestures, want 5 (update this test if the set changed intentionally)", len(gestures))
+	if len(gestures) != 6 {
+		t.Fatalf("Gestures() returned %d gestures, want 6 (update this test if the set changed intentionally)", len(gestures))
 	}
 	if ControlButton.SupportsGesture(Gesture("bogus")) {
 		t.Error("a gesture absent from Gestures() should not be supported by any control kind")

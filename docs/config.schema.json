@@ -294,6 +294,22 @@
         {
           "properties": {
             "type": {
+              "const": "volume.follow"
+            },
+            "params": {
+              "$ref": "#/$defs/VolumeFollowAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
               "const": "volume.mute_toggle"
             },
             "params": {
@@ -434,7 +450,8 @@
             "press",
             "hold",
             "release",
-            "double_press"
+            "double_press",
+            "move"
           ]
         },
         "action": {
@@ -750,6 +767,24 @@
       "required": [
         "target",
         "step"
+      ]
+    },
+    "VolumeFollowAction": {
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "minPercent": {
+          "type": "number"
+        },
+        "maxPercent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "target"
       ]
     },
     "VolumeMuteToggleAction": {

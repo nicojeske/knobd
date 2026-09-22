@@ -12,7 +12,7 @@ import (
 // time.
 func TestActionRegistryComplete(t *testing.T) {
 	allTypes := []ActionType{
-		ActionVolumeAdjust, ActionVolumeSet, ActionVolumeMuteToggle, ActionVolumeBalance,
+		ActionVolumeAdjust, ActionVolumeSet, ActionVolumeMuteToggle, ActionVolumeBalance, ActionVolumeFollow,
 		ActionAudioSoloToggle, ActionAudioDuckHold, ActionSceneApply, ActionSceneSave,
 		ActionLayerMomentary, ActionLayerLatch, ActionLayerCycle,
 		ActionKnobAssignFocusedApp, ActionKnobClear, ActionKnobLockToggle,
@@ -76,6 +76,7 @@ func TestEncodeDecodeActionRoundTrip(t *testing.T) {
 		VolumeAdjustAction{Target: Target{Kind: TargetFocused}, StepPercent: 2},
 		VolumeSetAction{Target: Target{Kind: TargetApp, Ref: "vesktop"}, Percent: 50},
 		VolumeMuteToggleAction{Target: Target{Kind: TargetDefaultSource}},
+		VolumeFollowAction{Target: Target{Kind: TargetDefaultSink}, MinPercent: 10, MaxPercent: 90},
 		AudioDuckHoldAction{Target: Target{Kind: TargetFocused}, DuckPercent: 20},
 		SceneApplyAction{SceneID: "meeting"},
 		LayerMomentaryAction{Layer: 1},

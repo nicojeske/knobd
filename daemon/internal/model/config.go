@@ -104,7 +104,7 @@ func (c Config) Validate() error {
 			if err := b.Validate(); err != nil {
 				return fmt.Errorf("model: profile %q binding %d: %w", p.ID, i, err)
 			}
-			if target, ok := targetOf(b.Action); ok {
+			if target, ok := TargetOf(b.Action); ok {
 				if err := c.validateTargetRef(target, matcherIDs, groupIDs); err != nil {
 					return fmt.Errorf("model: profile %q binding %d: %w", p.ID, i, err)
 				}
@@ -139,10 +139,12 @@ func (c Config) validateTargetRef(t Target, matcherIDs, groupIDs map[string]bool
 	return nil
 }
 
-// targetOf extracts the Target an Action carries, for actions that carry
+// TargetOf extracts the Target an Action carries, for actions that carry
 // exactly one. Actions with no target (e.g. LayerMomentaryAction) return
-// ok=false.
-func targetOf(a Action) (Target, bool) {
+// ok=false. Exported for daemon/internal/engine, which needs to resolve
+// an arbitrary Action's Target at dispatch time without duplicating this
+// switch (see specs/milestones/M04-mapping-engine-daemon.md).
+func TargetOf(a Action) (Target, bool) {
 	switch v := a.(type) {
 	case VolumeAdjustAction:
 		return v.Target, true
@@ -151,6 +153,8 @@ func targetOf(a Action) (Target, bool) {
 	case VolumeMuteToggleAction:
 		return v.Target, true
 	case VolumeBalanceAction:
+		return v.Target, true
+	case VolumeFollowAction:
 		return v.Target, true
 	case AudioSoloToggleAction:
 		return v.Target, true

@@ -22,7 +22,17 @@ const (
 	ActionVolumeAdjust     ActionType = "volume.adjust"
 	ActionVolumeSet        ActionType = "volume.set"
 	ActionVolumeMuteToggle ActionType = "volume.mute_toggle"
-	ActionVolumeBalance    ActionType = "volume.balance"
+	// ActionVolumeBalance has no handler and is not currently planned:
+	// audio.Backend has no per-channel volume write (VolumeState.Channels
+	// is read-only), and stereo balance is not a feature this project
+	// wants. The type is kept rather than removed so a hand-written or
+	// previously-generated config referencing it still decodes; see
+	// specs/reference/action-catalog.md.
+	ActionVolumeBalance ActionType = "volume.balance"
+	// ActionVolumeFollow maps a continuous control's absolute position
+	// directly onto a target's volume (see VolumeFollowAction). Fired on
+	// GestureMove — currently only the fader produces that gesture.
+	ActionVolumeFollow ActionType = "volume.follow"
 
 	// -- Layers, groups, scenes (specs/milestones/M08-layers-groups-scenes.md) --
 
@@ -106,6 +116,24 @@ type VolumeBalanceAction struct {
 
 func (VolumeBalanceAction) ActionType() ActionType { return ActionVolumeBalance }
 
+// VolumeFollowAction maps a continuous control's absolute position onto
+// a target's volume: the control at the bottom of its travel (Value 0)
+// sets the target to MinPercent, at the top (Value 127) MaxPercent, and
+// linearly in between. Fired on GestureMove — the fader is currently the
+// only control that produces it. Unlike VolumeSetAction, it carries no
+// fixed level of its own: the level comes from the triggering event's
+// absolute position (see engine.Invocation.Value), not from a field
+// here.
+type VolumeFollowAction struct {
+	Target Target `json:"target"`
+	// MinPercent/MaxPercent bound the output range; both zero means the
+	// default [0, 100].
+	MinPercent float64 `json:"minPercent,omitempty"`
+	MaxPercent float64 `json:"maxPercent,omitempty"`
+}
+
+func (VolumeFollowAction) ActionType() ActionType { return ActionVolumeFollow }
+
 // AudioSoloToggleAction mutes every other known stream while leaving
 // Target audible, and restores prior mute state on a second press.
 type AudioSoloToggleAction struct {
@@ -178,8 +206,8 @@ type KnobAssignFocusedAppAction struct {
 func (KnobAssignFocusedAppAction) ActionType() ActionType { return ActionKnobAssignFocusedApp }
 
 // KnobClearAction removes whatever binding the triggering control
-// currently has (on its own gesture, not a target's), returning it to
-// the dynamic app pool described in specs/reference/action-catalog.md.
+// currently has (on its own gesture, not a target's), leaving it
+// unbound.
 type KnobClearAction struct{}
 
 func (KnobClearAction) ActionType() ActionType { return ActionKnobClear }
@@ -289,6 +317,7 @@ var actionRegistry = map[ActionType]actionEntry{
 	ActionVolumeSet:            newActionEntry[VolumeSetAction](),
 	ActionVolumeMuteToggle:     newActionEntry[VolumeMuteToggleAction](),
 	ActionVolumeBalance:        newActionEntry[VolumeBalanceAction](),
+	ActionVolumeFollow:         newActionEntry[VolumeFollowAction](),
 	ActionAudioSoloToggle:      newActionEntry[AudioSoloToggleAction](),
 	ActionAudioDuckHold:        newActionEntry[AudioDuckHoldAction](),
 	ActionSceneApply:           newActionEntry[SceneApplyAction](),

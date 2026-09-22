@@ -79,6 +79,10 @@ export type Action =
       params: VolumeBalanceAction;
     }
   | {
+      type: "volume.follow";
+      params: VolumeFollowAction;
+    }
+  | {
       type: "volume.mute_toggle";
       params: VolumeMuteToggleAction;
     }
@@ -106,7 +110,7 @@ export interface Profile {
 export interface Binding {
   layer: number;
   control: Control;
-  gesture: "turn" | "press" | "hold" | "release" | "double_press";
+  gesture: "turn" | "press" | "hold" | "release" | "double_press" | "move";
   action: Action;
 }
 export interface Control {
@@ -168,6 +172,11 @@ export interface VolumeAdjustAction {
 export interface VolumeBalanceAction {
   target: Target;
   step: number;
+}
+export interface VolumeFollowAction {
+  target: Target;
+  minPercent?: number;
+  maxPercent?: number;
 }
 export interface VolumeMuteToggleAction {
   target: Target;
