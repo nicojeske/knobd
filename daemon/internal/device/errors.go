@@ -2,7 +2,6 @@ package device
 
 import (
 	"errors"
-	"fmt"
 )
 
 // ErrStandardMode means traffic arrived that cannot be Mackie Control
@@ -21,6 +20,9 @@ var ErrStandardMode = errors.New("device: controller does not appear to be in Ma
 // no entry for.
 var ErrUnknownMessage = errors.New("device: message does not match the X-Touch Mini MC-mode map")
 
-func errNotImplemented(fn string) error {
-	return fmt.Errorf("device: %s is not implemented yet (see specs/milestones/M05-led-feedback.md)", fn)
-}
+// ErrNoLED means EncodeLED was asked to light a Control that has no LED
+// at all on this unit: the fader, or an encoder's own push (its ring is
+// the only indicator for that encoder). Confirmed by sending full
+// velocity to an encoder push's note and observing no response
+// anywhere — see specs/reference/xtouch-mini-midi-map.md's LED section.
+var ErrNoLED = errors.New("device: control has no LED on this unit")

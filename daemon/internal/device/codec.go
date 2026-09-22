@@ -21,10 +21,20 @@
 //     ErrStandardMode rather than silently misinterpreting it — see
 //     xtouch.go and errors.go.
 //
-// TODO(M05): implement EncodeLED once the ring/button LED byte encoding
-// has been empirically verified against the physical unit (writing to
-// the device is a state change, so it was deliberately not tested while
-// scaffolding this package — see the risk noted in the M05 spec).
+// M05's EncodeLED (led.go) targets the same reference doc's LED
+// section, confirmed live via `knobd calibrate-leds`:
+//   - Button LEDs (grid and side buttons — not encoder pushes, which
+//     have no LED of their own): Note On, channel 1, same note numbers
+//     as input. Velocity 0 = off, 1-2 = blinking, 3-127 = solid on —
+//     the *opposite* split from the publicly-documented guess this
+//     package originally scaffolded against.
+//   - Encoder rings: CC 48-55, channel 1, `value = (mode<<4)|position`.
+//     Only 11 of the ring's 13 physical segments are individually
+//     addressable (`position` 0-11, clamping above 11); `mode` is one
+//     of four confirmed display styles (see LEDMode). knobd only emits
+//     mode 2 (fill), the natural rendering of a 0-100% volume.
+//   - The fader and encoder pushes have no LED at all; EncodeLED
+//     returns ErrNoLED for either.
 package device
 
 import (
@@ -97,24 +107,45 @@ type Event struct {
 	Time time.Time
 }
 
-// LEDMode selects how an encoder's ring should render a value. See
-// specs/milestones/M05-led-feedback.md.
+// LEDMode selects one of the encoder ring's four hardware display
+// styles, confirmed against the physical unit (see
+// specs/reference/xtouch-mini-midi-map.md's LED section) via
+// `knobd calibrate-leds`. Only LEDModeFill is used by anything in this
+// codebase today — volume is naturally a fill bar — the other three are
+// defined because the wire format supports them at no extra cost and a
+// future action (e.g. a stereo balance control) may want one.
 type LEDMode int
 
 const (
+	// LEDModeSingleDot lights exactly one LED, at Position.
 	LEDModeSingleDot LEDMode = iota
-	LEDModeBar
+	// LEDModePan lights a 3-LED-wide bar centered near Position.
+	LEDModePan
+	// LEDModeFill lights a bar growing from the ring's addressable end
+	// through Position — the mode knobd uses for volume display.
+	LEDModeFill
+	// LEDModeSpread lights a bar that grows symmetrically outward from
+	// the ring's center.
 	LEDModeSpread
 )
 
 // LEDUpdate describes one LED (or ring) state to push to the device.
 type LEDUpdate struct {
 	Control model.Control
-	// On is used for a plain button LED; Position/Mode are used for an
-	// encoder ring. Exactly one set of fields is meaningful, depending
-	// on Control.Kind.
-	On       bool
-	Position int // 0-12, ring position
+	// On is used for a plain button LED (grid or side button); Position
+	// and Mode are used for an encoder ring. Exactly one set of fields
+	// is meaningful, depending on Control.Kind. The fader and an
+	// encoder's own push (model.ControlFader, model.ControlEncoderPush)
+	// have no LED at all on this unit — EncodeLED returns ErrNoLED for
+	// either.
+	On bool
+	// Position is a ring position, 0-11: 0 is off/empty, 11 is the last
+	// of the ring's 11 individually addressable LEDs (of 13 physical
+	// segments — the two end segments never light, confirmed on the
+	// unit). A value outside 0-11 is clamped by EncodeLED rather than
+	// rejected, matching the hardware's own behavior at the wire level
+	// (11, 12, and 15 all render identically).
+	Position int
 	Mode     LEDMode
 }
 
@@ -139,7 +170,9 @@ type Codec interface {
 	Decode(msg midi.Message) (event Event, ok bool, err error)
 
 	// EncodeLED produces the raw MIDI message(s) that would apply
-	// update to the device.
+	// update to the device. Returns ErrNoLED if update.Control has no
+	// LED at all (the fader, an encoder push), or wraps ErrUnknownMessage
+	// if update.Control isn't a recognized control on this unit.
 	EncodeLED(update LEDUpdate) ([]midi.Message, error)
 }
 
@@ -151,8 +184,6 @@ func NewXTouchMiniCodec() Codec {
 
 type xtouchMiniCodec struct{}
 
-func (xtouchMiniCodec) EncodeLED(LEDUpdate) ([]midi.Message, error) {
-	return nil, errNotImplemented("xtouchMiniCodec.EncodeLED")
-}
+// EncodeLED is implemented in led.go.
 
 var _ Codec = xtouchMiniCodec{}

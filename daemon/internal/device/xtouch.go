@@ -41,6 +41,22 @@ func buildNoteMap() map[byte]model.Control {
 	return m
 }
 
+// controlToNote is the inverse of noteToControl, for EncodeLED (led.go):
+// given a button/side-button Control, which note number's LED addresses
+// it. TestNoteMapIsWellFormed proves noteToControl is injective, so this
+// inversion loses no information; encoder pushes are included too (the
+// map is built from the same table) even though EncodeLED rejects them
+// with ErrNoLED before ever consulting this map — they have no LED.
+var controlToNote = invertNoteMap(noteToControl)
+
+func invertNoteMap(m map[byte]model.Control) map[model.Control]byte {
+	inv := make(map[model.Control]byte, len(m))
+	for note, ctrl := range m {
+		inv[ctrl] = note
+	}
+	return inv
+}
+
 // encoderTurnCC returns the 1-based encoder index for a CC controller
 // number in the encoders' range (16-23), or ok=false outside it.
 func encoderTurnCC(cc byte) (index int, ok bool) {
@@ -48,6 +64,17 @@ func encoderTurnCC(cc byte) (index int, ok bool) {
 		return 0, false
 	}
 	return int(cc-16) + 1, true
+}
+
+// ringCC returns the CC controller number for an encoder's LED ring
+// (48-55), given the encoder's 1-based index (1-8) — see led.go and
+// specs/reference/xtouch-mini-midi-map.md's LED section (verified
+// directly on CC 48 and CC 55, the two ends of the range).
+func ringCC(index int) (cc byte, ok bool) {
+	if index < 1 || index > 8 {
+		return 0, false
+	}
+	return byte(47 + index), true
 }
 
 // midiChannel returns the 1-based MIDI channel of a status byte (channel
