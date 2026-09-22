@@ -36,6 +36,12 @@ type Invocation struct {
 	Action  model.Action
 	Control model.Control
 	Gesture model.Gesture
+	// Layer is the active layer the triggering gesture was dispatched
+	// on. It exists for knob.assign_focused_app's handler (M06), which
+	// must rewrite a binding on the layer that's actually active rather
+	// than assuming layer 0 — a real concern once M08 lands more than
+	// one layer.
+	Layer int
 
 	// Delta is the signed detent count for a GestureTurn firing; 0
 	// otherwise. It may be greater than one detent's worth when the

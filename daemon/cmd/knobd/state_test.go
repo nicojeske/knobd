@@ -7,6 +7,7 @@ import (
 	"github.com/njeske/knobd/internal/api"
 	"github.com/njeske/knobd/internal/audio"
 	"github.com/njeske/knobd/internal/engine"
+	"github.com/njeske/knobd/internal/focus"
 	"github.com/njeske/knobd/internal/model"
 )
 
@@ -19,6 +20,7 @@ func TestSnapshotToState(t *testing.T) {
 	snap := engine.Snapshot{
 		ActiveProfileID: "default",
 		ActiveLayer:     0,
+		Focused:         focus.AppInfo{ResourceClass: "brave-browser", Caption: "some page"},
 		Controls: []engine.ControlSnapshot{
 			{
 				Control:    enc1,
@@ -52,6 +54,9 @@ func TestSnapshotToState(t *testing.T) {
 	}
 	if got.Focus.Available {
 		t.Error("Focus.Available = true, want false")
+	}
+	if got.Focus.ResourceClass != "brave-browser" {
+		t.Errorf("Focus.ResourceClass = %q, want %q", got.Focus.ResourceClass, "brave-browser")
 	}
 	if got.Profile != (api.ProfileState{ActiveProfileID: "default", ActiveLayer: 0}) {
 		t.Errorf("Profile = %+v", got.Profile)

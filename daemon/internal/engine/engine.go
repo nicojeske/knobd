@@ -25,6 +25,7 @@ import (
 	"github.com/njeske/knobd/internal/focus"
 	"github.com/njeske/knobd/internal/midi"
 	"github.com/njeske/knobd/internal/model"
+	"github.com/njeske/knobd/internal/proctree"
 )
 
 // HoldThreshold is the minimum duration a button/encoder-push must be
@@ -63,6 +64,12 @@ type Deps struct {
 	Audio  audio.Backend
 	Focus  focus.Provider
 	Config model.Config
+
+	// ProcRoot overrides where the focus resolver's process-tree
+	// fallback rung reads pid ancestry from (see
+	// daemon/internal/proctree); "" means the real /proc. Tests set a
+	// t.TempDir() fabricated tree.
+	ProcRoot string
 
 	Registry *actions.Registry
 	Logger   *slog.Logger
@@ -209,9 +216,32 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	bindings := newBindingIndex(cfg, e.log)
 	gestures := newGestureMachine(HoldThreshold, DoublePressWindow, bindings.deferPress)
-	res := newResolver(e.deps.Focus)
+	res := newResolver(proctree.Walker{Root: e.deps.ProcRoot}, e.log)
 	res.setConfig(cfg)
 	layer := 0
+
+	// Watch is started once, here, and never retried: per
+	// focus.Provider.Watch's doc comment, an implementation is
+	// responsible for its own reconnects (kwinProvider reinstalls its
+	// KWin script after a compositor restart internally), so the only
+	// thing that should ever close this channel is ctx being canceled.
+	// A Watch failure here (as opposed to the channel later closing) is
+	// non-fatal -- unlike the audio subscription below, focus is a
+	// best-effort hint the engine can run entirely without (both
+	// focus.Unavailable() and a not-yet-verified real Provider are
+	// expected states, not engine bugs).
+	focusEvents, ferr := e.deps.Focus.Watch(ctx)
+	if ferr != nil {
+		e.log.Warn("engine: focus watch unavailable; 'focused' targets will not resolve", "err", ferr)
+		focusEvents = nil
+	}
+	// Seed the cache from Current so a target resolves against the
+	// already-focused window rather than only the next change --
+	// Current is documented to answer from cache with no I/O, so this
+	// is as cheap as Watch's first delivery would have been anyway.
+	if info, cerr := e.deps.Focus.Current(ctx); cerr == nil {
+		res.setFocused(info)
+	}
 
 	dispatchCh := make(chan work, dispatchQueueDepth)
 	streamsCh := make(chan streamsResult, 1)
@@ -313,12 +343,12 @@ func (e *Engine) Run(ctx context.Context) error {
 				continue
 			}
 			for _, g := range gestures.Handle(ev) {
-				e.dispatchGesture(ctx, bindings, res, layer, g, dispatchCh)
+				e.dispatchGesture(bindings, res, layer, g, dispatchCh)
 			}
 
 		case now := <-timerC:
 			for _, g := range gestures.Tick(now) {
-				e.dispatchGesture(ctx, bindings, res, layer, g, dispatchCh)
+				e.dispatchGesture(bindings, res, layer, g, dispatchCh)
 			}
 
 		case <-ledTimerC:
@@ -332,6 +362,28 @@ func (e *Engine) Run(ctx context.Context) error {
 				return errAudioSubscriptionClosed
 			}
 			e.handleAudioEvent(ev, res, dispatchCh)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+
+		case info, open := <-focusEvents:
+			if !open {
+				if ctx.Err() != nil {
+					return nil
+				}
+				// Deliberately non-fatal, asymmetric with
+				// errAudioSubscriptionClosed above: focus is a
+				// best-effort hint, not something the engine depends on
+				// to keep running. The last known app stays cached and
+				// TargetFocused keeps resolving against it; a control
+				// bound to it just stops following further focus
+				// changes until knobd is restarted.
+				e.log.Warn("engine: focus event stream closed; 'focused' targets will use the last known app")
+				focusEvents = nil // a nil channel blocks forever: this arm is now permanently disabled
+				continue
+			}
+			res.setFocused(info)
+			// An encoder bound to TargetFocused must have its ring
+			// follow the newly-focused app; nothing else in this loop
+			// would repaint it on a focus change alone.
 			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
 
 		case sr := <-streamsCh:
@@ -396,12 +448,11 @@ func (e *Engine) logDecodeError(err error, last *time.Time, suppressed *int) {
 // dispatchGesture looks up g's binding, resolves its target (if any),
 // and enqueues the resulting Invocation to the dispatcher. Resolution
 // happens here, inline on the run goroutine, rather than in the
-// dispatcher: every target.Kind resolver.resolve handles is a pure cache
-// read except TargetFocused, which is safe to call inline only because
-// M04 only ever runs against focus.Unavailable() or FakeProvider, both
-// synchronous -- see resolver.resolveFocused's doc comment for what M06
-// needs to change about this.
-func (e *Engine) dispatchGesture(ctx context.Context, bindings *bindingIndex, res *resolver, layer int, g gesture, dispatchCh chan<- work) {
+// dispatcher: every target.Kind resolver.resolve handles is a pure,
+// non-blocking cache read (see resolveFocused's doc comment for what
+// changed in M06 to make that true of TargetFocused too — it no longer
+// takes a context.Context at all, for the same reason).
+func (e *Engine) dispatchGesture(bindings *bindingIndex, res *resolver, layer int, g gesture, dispatchCh chan<- work) {
 	action, ok := bindings.lookup(layer, g.Control, g.Gesture)
 	if !ok {
 		return
@@ -410,7 +461,7 @@ func (e *Engine) dispatchGesture(ctx context.Context, bindings *bindingIndex, re
 	var refs []audio.Ref
 	target, hasTarget := model.TargetOf(action)
 	if hasTarget {
-		resolved, err := res.resolve(ctx, target)
+		resolved, err := res.resolve(target)
 		if err != nil {
 			e.log.Warn("engine: resolve target failed", "control", g.Control, "gesture", g.Gesture, "target", target, "err", err)
 			return
@@ -426,6 +477,7 @@ func (e *Engine) dispatchGesture(ctx context.Context, bindings *bindingIndex, re
 		Action:  action,
 		Control: g.Control,
 		Gesture: g.Gesture,
+		Layer:   layer,
 		Delta:   g.Delta,
 		Value:   g.Value,
 		At:      g.At,

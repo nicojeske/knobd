@@ -1,0 +1,26 @@
+[
+  {
+    "_comment": "Brave's audio stream: no application.id at all (so DesktopIDs-based matching alone misses it), and its process.id (4417) differs from the FOCUSED WINDOW's pid used in the accompanying test -- the case M06's acceptance criteria name specifically.",
+    "id": 154,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "Brave",
+      "application.name": "Brave",
+      "application.process.binary": "brave",
+      "application.process.id": 4417,
+      "media.name": "Playback"
+    }
+  },
+  {
+    "_comment": "An unrelated app's stream, present so a test can assert it does NOT get pulled in by an over-broad match.",
+    "id": 200,
+    "props": {
+      "media.class": "Stream/Output/Audio",
+      "node.name": "vesktop",
+      "application.name": "vesktop",
+      "application.process.binary": "vesktop",
+      "application.process.id": 5000,
+      "media.name": "Playback"
+    }
+  }
+]

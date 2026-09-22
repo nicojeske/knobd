@@ -1,13 +1,13 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"testing"
 
 	"github.com/njeske/knobd/internal/audio"
 	"github.com/njeske/knobd/internal/focus"
 	"github.com/njeske/knobd/internal/model"
+	"github.com/njeske/knobd/internal/proctree"
 )
 
 // The fixture below mirrors the two edge cases already pinned by
@@ -32,10 +32,10 @@ func seedResolver(t *testing.T, r *resolver) {
 }
 
 func TestResolverDefaultSinkAndSource(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
 
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetDefaultSink})
+	refs, err := r.resolve(model.Target{Kind: model.TargetDefaultSink})
 	if err != nil {
 		t.Fatalf("resolve default_sink: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestResolverDefaultSinkAndSource(t *testing.T) {
 		t.Errorf("default_sink refs = %+v", refs)
 	}
 
-	refs, err = r.resolve(context.Background(), model.Target{Kind: model.TargetDefaultSource})
+	refs, err = r.resolve(model.Target{Kind: model.TargetDefaultSource})
 	if err != nil {
 		t.Fatalf("resolve default_source: %v", err)
 	}
@@ -53,12 +53,12 @@ func TestResolverDefaultSinkAndSource(t *testing.T) {
 }
 
 func TestResolverSinkAndSourceByName(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
 
 	// Unverified: resolves to a Ref even though "nonexistent" isn't in
 	// the cache — the real backend rejects it server-side on SetVolume.
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetSink, Ref: "nonexistent"})
+	refs, err := r.resolve(model.Target{Kind: model.TargetSink, Ref: "nonexistent"})
 	if err != nil {
 		t.Fatalf("resolve sink: %v", err)
 	}
@@ -68,13 +68,13 @@ func TestResolverSinkAndSourceByName(t *testing.T) {
 }
 
 func TestResolverAppMultiStream(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
 	r.setConfig(model.Config{AppMatchers: []model.AppMatcher{
 		{ID: "vesktop", AppNames: []string{"vesktop"}},
 	}})
 
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetApp, Ref: "vesktop"})
+	refs, err := r.resolve(model.Target{Kind: model.TargetApp, Ref: "vesktop"})
 	if err != nil {
 		t.Fatalf("resolve app: %v", err)
 	}
@@ -84,13 +84,13 @@ func TestResolverAppMultiStream(t *testing.T) {
 }
 
 func TestResolverAppByNodeNameOnly(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
 	r.setConfig(model.Config{AppMatchers: []model.AppMatcher{
 		{ID: "java", NodeNames: []string{"java"}},
 	}})
 
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetApp, Ref: "java"})
+	refs, err := r.resolve(model.Target{Kind: model.TargetApp, Ref: "java"})
 	if err != nil {
 		t.Fatalf("resolve app: %v", err)
 	}
@@ -100,13 +100,13 @@ func TestResolverAppByNodeNameOnly(t *testing.T) {
 }
 
 func TestResolverAppNotPlayingIsNotAnError(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
 	r.setConfig(model.Config{AppMatchers: []model.AppMatcher{
 		{ID: "spotify", AppNames: []string{"spotify"}},
 	}})
 
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetApp, Ref: "spotify"})
+	refs, err := r.resolve(model.Target{Kind: model.TargetApp, Ref: "spotify"})
 	if err != nil {
 		t.Fatalf("resolve app not currently playing should not error: %v", err)
 	}
@@ -116,17 +116,17 @@ func TestResolverAppNotPlayingIsNotAnError(t *testing.T) {
 }
 
 func TestResolverAppUnknownMatcher(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
-	if _, err := r.resolve(context.Background(), model.Target{Kind: model.TargetApp, Ref: "nonexistent"}); err == nil {
+	if _, err := r.resolve(model.Target{Kind: model.TargetApp, Ref: "nonexistent"}); err == nil {
 		t.Fatal("expected an error resolving an unknown app matcher")
 	}
 }
 
 func TestResolverAllStreams(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetAllStreams})
+	refs, err := r.resolve(model.Target{Kind: model.TargetAllStreams})
 	if err != nil {
 		t.Fatalf("resolve all_streams: %v", err)
 	}
@@ -136,34 +136,111 @@ func TestResolverAllStreams(t *testing.T) {
 }
 
 func TestResolverGroupUnsupported(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
-	_, err := r.resolve(context.Background(), model.Target{Kind: model.TargetGroup, Ref: "voice"})
+	_, err := r.resolve(model.Target{Kind: model.TargetGroup, Ref: "voice"})
 	if !errors.Is(err, errTargetUnsupported) {
 		t.Fatalf("resolve group: err = %v, want errTargetUnsupported", err)
 	}
 }
 
-func TestResolverFocusedUnavailable(t *testing.T) {
-	r := newResolver(focus.Unavailable())
+// TestResolverFocusedWithNothingFocusedResolvesToNothing pins the M06
+// behavior change from resolveFocused no longer calling into a
+// focus.Provider inline: with no focused app ever set (the zero-value
+// focus.AppInfo, matching a freshly constructed resolver, or an engine
+// wired against focus.Unavailable()), TargetFocused resolves to
+// (nil, nil) -- "resolves to nothing right now" -- rather than an
+// error. dispatchGesture already treats that as a quiet no-op (logged
+// at Debug, not Warn); see resolveFocused's doc comment.
+func TestResolverFocusedWithNothingFocusedResolvesToNothing(t *testing.T) {
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
-	_, err := r.resolve(context.Background(), model.Target{Kind: model.TargetFocused})
-	if !errors.Is(err, focus.ErrUnavailable) {
-		t.Fatalf("resolve focused: err = %v, want focus.ErrUnavailable", err)
+	refs, err := r.resolve(model.Target{Kind: model.TargetFocused})
+	if err != nil {
+		t.Fatalf("resolve focused with nothing focused: %v", err)
+	}
+	if refs != nil {
+		t.Errorf("expected nil refs, got %+v", refs)
 	}
 }
 
 func TestResolverFocusedMatchesResourceClass(t *testing.T) {
-	fp := focus.NewFakeProvider()
-	fp.SetFocused(focus.AppInfo{ResourceClass: "vesktop"})
-	r := newResolver(fp)
+	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
+	r.setFocused(focus.AppInfo{ResourceClass: "vesktop"})
 
-	refs, err := r.resolve(context.Background(), model.Target{Kind: model.TargetFocused})
+	refs, err := r.resolve(model.Target{Kind: model.TargetFocused})
 	if err != nil {
 		t.Fatalf("resolve focused: %v", err)
 	}
 	if len(refs) != 2 {
 		t.Errorf("expected the focused app's two streams, got %+v", refs)
+	}
+}
+
+// TestResolverFocusedMemoInvalidatedByStreamChanges pins that
+// resolveFocused's memo (keyed on (focused, streamGen), see
+// resolver.go) is actually invalidated by every stream-cache mutation
+// -- not just recomputed once and then stuck.
+func TestResolverFocusedMemoInvalidatedByStreamChanges(t *testing.T) {
+	r := newResolver(proctree.Walker{}, nil)
+	r.setFocused(focus.AppInfo{ResourceClass: "vesktop"})
+	r.setStreams([]audio.Stream{
+		{ID: "118", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "vesktop"}},
+	})
+
+	refs, err := r.resolve(model.Target{Kind: model.TargetFocused})
+	if err != nil {
+		t.Fatalf("resolve focused: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 ref before the stream change, got %+v", refs)
+	}
+
+	// A second stream for the same app appears; if upsertStream failed
+	// to bump streamGen, this would wrongly keep returning the first
+	// call's memoized single ref.
+	r.upsertStream(audio.Stream{ID: "128", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "vesktop"}})
+	refs, err = r.resolve(model.Target{Kind: model.TargetFocused})
+	if err != nil {
+		t.Fatalf("resolve focused after upsertStream: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 refs after upsertStream, got %+v (memo not invalidated)", refs)
+	}
+
+	r.removeStream("128")
+	refs, err = r.resolve(model.Target{Kind: model.TargetFocused})
+	if err != nil {
+		t.Fatalf("resolve focused after removeStream: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 ref after removeStream, got %+v (memo not invalidated)", refs)
+	}
+}
+
+// TestResolverFocusedMemoInvalidatedBySetFocusedChange pins the other
+// half of the memo key: a focus change alone (no stream mutation) must
+// also invalidate it.
+func TestResolverFocusedMemoInvalidatedBySetFocusedChange(t *testing.T) {
+	r := newResolver(proctree.Walker{}, nil)
+	seedResolver(t, r)
+
+	r.setFocused(focus.AppInfo{ResourceClass: "vesktop"})
+	refs, err := r.resolve(model.Target{Kind: model.TargetFocused})
+	if err != nil {
+		t.Fatalf("resolve focused: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected vesktop's 2 streams, got %+v", refs)
+	}
+
+	r.setFocused(focus.AppInfo{ResourceClass: "java"})
+	refs, err = r.resolve(model.Target{Kind: model.TargetFocused})
+	if err != nil {
+		t.Fatalf("resolve focused after setFocused changed: %v", err)
+	}
+	if len(refs) != 1 || refs[0].ID != "112" {
+		t.Fatalf("expected java's single stream after setFocused changed the target, got %+v (memo not invalidated)", refs)
 	}
 }

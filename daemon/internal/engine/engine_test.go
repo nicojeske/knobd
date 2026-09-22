@@ -8,6 +8,7 @@ import (
 	"github.com/njeske/knobd/internal/actions"
 	"github.com/njeske/knobd/internal/audio"
 	"github.com/njeske/knobd/internal/device"
+	"github.com/njeske/knobd/internal/focus"
 	"github.com/njeske/knobd/internal/midi"
 	"github.com/njeske/knobd/internal/model"
 )
@@ -383,6 +384,97 @@ func TestEngineRunContextCancelReturnsNil(t *testing.T) {
 	case err := <-done:
 		if err != nil {
 			t.Fatalf("Run returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
+}
+
+// newTestEngineWithFocus is newTestEngine plus a focus.Provider, for
+// tests exercising the M06 focus-events wiring end to end (Watch ->
+// resolver.setFocused -> TargetFocused resolution -> Snapshot). Kept
+// separate from newTestEngine, whose 12 other call sites have no
+// reason to specify one.
+func newTestEngineWithFocus(cfg model.Config, clk *testClock, fp focus.Provider) (*Engine, *midi.FakePort, *audio.FakeBackend) {
+	port := midi.NewFakePort(16)
+	backend := audio.NewFakeBackend()
+	registry := actions.NewRegistry()
+	e := New(Deps{
+		Port:     port,
+		Codec:    device.NewXTouchMiniCodec(),
+		Audio:    backend,
+		Focus:    fp,
+		Config:   cfg,
+		Registry: registry,
+		Clock:    clk,
+	})
+	return e, port, backend
+}
+
+// TestEngineRunFocusChangeUpdatesTargetFocusedRefs exercises the M06
+// wiring end to end: Engine.Run starts Watch, a focus.FakeProvider
+// event flows through the run loop's select arm into
+// resolver.setFocused, and a TargetFocused binding's Snapshot refs
+// (and Snapshot.Focused) reflect it -- all without dispatching any
+// gesture, proving the watch/cache path independently of dispatch.
+func TestEngineRunFocusChangeUpdatesTargetFocusedRefs(t *testing.T) {
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetFocused}, StepPercent: 2}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	fp := focus.NewFakeProvider()
+	e, _, backend := newTestEngineWithFocus(cfg, clk, fp)
+	backend.Seed(nil, nil, []audio.Stream{
+		{ID: "1", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "vesktop"}},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runEngine(t, e, ctx)
+
+	// Before any focus is reported, TargetFocused resolves to nothing.
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		if err != nil {
+			return false
+		}
+		// Wait for the startup resync (the stream cache) to be ready,
+		// evidenced by Controls being populated at all, then confirm no
+		// refs yet.
+		for _, cs := range snap.Controls {
+			if cs.Control == enc1 && cs.Gesture == model.GestureTurn {
+				return len(cs.Refs) == 0
+			}
+		}
+		return false
+	})
+
+	fp.SetFocused(focus.AppInfo{ResourceClass: "vesktop"})
+
+	waitForResolved(t, e, enc1, model.GestureTurn)
+
+	snap, err := e.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snap.Focused.ResourceClass != "vesktop" {
+		t.Errorf("Snapshot.Focused = %+v, want ResourceClass %q", snap.Focused, "vesktop")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned %v, want nil after ctx cancel", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after ctx cancel")

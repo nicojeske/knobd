@@ -164,7 +164,7 @@ func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState ap
 		Now:      now,
 		Device:   device,
 		Audio:    audioState,
-		Focus:    api.FocusState{Available: focusAvailable},
+		Focus:    api.FocusState{Available: focusAvailable, ResourceClass: snap.Focused.ResourceClass},
 		Profile:  api.ProfileState{ActiveProfileID: snap.ActiveProfileID, ActiveLayer: snap.ActiveLayer},
 		Controls: controls,
 	}

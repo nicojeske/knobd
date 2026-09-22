@@ -2,7 +2,11 @@
 
 ## Status
 
-Not started.
+In progress. `callDBus` direction confirmed (see ADR 0003); the
+process-tree/name-matching resolution layer, the engine's focus-cache
+wiring, and `actions.Invocation.Layer` are done. Remaining:
+`focus.New`'s real `kwinProvider`, `knob.assign_focused_app`'s handler,
+the LED confirmation flash, and live verification.
 
 ## Depends on
 
@@ -66,9 +70,12 @@ None expected beyond what M01 scaffolded
 
 ## Acceptance criteria
 
-- [ ] Confirmed whether KWin's `callDBus` supports calling out to an
+- [x] Confirmed whether KWin's `callDBus` supports calling out to an
       arbitrary service in this Plasma version; ADR 0003 updated with
-      the answer either way.
+      the answer either way. Confirmed yes, live: a throwaway KWin
+      script + a standalone Go D-Bus listener exchanged real focus
+      events (Konsole/KCalc) end to end. See ADR 0003's "Resolved"
+      section.
 - [ ] `focus.Provider.Watch` delivers an event when switching focus
       between two different applications' windows.
 - [ ] Long-pressing an encoder-push bound to nothing (or to something

@@ -31,13 +31,21 @@ type fixtureNode struct {
 // order (tests assert "both streams of an app" pairs, which needs one).
 func loadFixtureStreams(t *testing.T) []Stream {
 	t.Helper()
-	data, err := os.ReadFile(fixturePath)
+	return loadFixtureStreamsFrom(t, fixturePath)
+}
+
+// loadFixtureStreamsFrom is loadFixtureStreams parameterized by path,
+// for tests (M06's focus_test.go) that need a different fixture file in
+// the same flat {"id", "props"} shape.
+func loadFixtureStreamsFrom(t *testing.T, path string) []Stream {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reading fixture %s: %v", fixturePath, err)
+		t.Fatalf("reading fixture %s: %v", path, err)
 	}
 	var nodes []fixtureNode
 	if err := json.Unmarshal(data, &nodes); err != nil {
-		t.Fatalf("parsing fixture %s: %v", fixturePath, err)
+		t.Fatalf("parsing fixture %s: %v", path, err)
 	}
 
 	var streams []Stream

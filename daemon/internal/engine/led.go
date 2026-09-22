@@ -228,7 +228,7 @@ func deviceRefsBoundToTargets(bindings *bindingIndex, res *resolver, layer int) 
 		default:
 			continue
 		}
-		resolved, err := res.resolve(context.Background(), target)
+		resolved, err := res.resolve(target)
 		if err != nil {
 			continue
 		}

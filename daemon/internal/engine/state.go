@@ -1,10 +1,10 @@
 package engine
 
 import (
-	"context"
 	"sort"
 
 	"github.com/njeske/knobd/internal/audio"
+	"github.com/njeske/knobd/internal/focus"
 	"github.com/njeske/knobd/internal/model"
 )
 
@@ -18,6 +18,11 @@ type Snapshot struct {
 	ActiveProfileID string
 	ActiveLayer     int
 	Controls        []ControlSnapshot
+	// Focused is the resolver's cached last-known focused application
+	// (see resolver.setFocused) — the zero value if nothing has been
+	// reported yet. cmd/knobd/state.go translates this into
+	// api.FocusState.ResourceClass.
+	Focused focus.AppInfo
 }
 
 // ControlSnapshot is one bound (control, gesture)'s current behavior and
@@ -60,7 +65,7 @@ func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *re
 		if target, ok := model.TargetOf(ab.Action); ok {
 			t := target
 			cs.Target = &t
-			if refs, err := res.resolve(context.Background(), target); err == nil && len(refs) > 0 {
+			if refs, err := res.resolve(target); err == nil && len(refs) > 0 {
 				cs.Refs = refs
 				if e.deps.Observer != nil {
 					if st, ok := e.deps.Observer.CachedLevel(refs[0]); ok {
@@ -72,5 +77,5 @@ func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *re
 		controls = append(controls, cs)
 	}
 
-	return Snapshot{ActiveProfileID: cfg.ActiveProfileID, ActiveLayer: layer, Controls: controls}
+	return Snapshot{ActiveProfileID: cfg.ActiveProfileID, ActiveLayer: layer, Controls: controls, Focused: res.focused}
 }
