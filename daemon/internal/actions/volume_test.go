@@ -241,6 +241,23 @@ func TestVolumeMuteToggleMatrix(t *testing.T) {
 	}
 }
 
+func TestVolumeCachedLevel(t *testing.T) {
+	ref := audio.Ref{Kind: audio.RefStream, ID: "1"}
+	fb := seedBackend(t, map[audio.Ref]audio.VolumeState{ref: {Percent: 33}})
+	v := NewVolumeHandlers(fb, VolumeOptions{})
+
+	if _, ok := v.CachedLevel(ref); ok {
+		t.Fatal("expected no cached level before any read/write")
+	}
+	if err := v.executeSet(context.Background(), Invocation{Action: model.VolumeSetAction{Percent: 70}, Refs: []audio.Ref{ref}}); err != nil {
+		t.Fatalf("executeSet: %v", err)
+	}
+	st, ok := v.CachedLevel(ref)
+	if !ok || st.Percent != 70 {
+		t.Errorf("CachedLevel = %+v, %v; want {Percent:70}, true", st, ok)
+	}
+}
+
 func TestVolumeBalanceHasNoHandler(t *testing.T) {
 	r := NewRegistry()
 	v := NewVolumeHandlers(audio.NewFakeBackend(), VolumeOptions{})

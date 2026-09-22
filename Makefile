@@ -1,7 +1,13 @@
-.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio clean ui-install ui-dev
+.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio install-user uninstall-user clean ui-install ui-dev
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
+
+# Where install-user puts things. Matches packaging/systemd/knobd.service's
+# hardcoded ExecStart=%h/.local/bin/knobd -- a non-default PREFIX needs that
+# line edited too (see the README); real templating is M12's job.
+PREFIX  ?= $(HOME)/.local
+UNITDIR ?= $(HOME)/.config/systemd/user
 
 build: ## Build the daemon binary
 	cd $(DAEMON_DIR) && go build -o knobd ./cmd/knobd
@@ -36,6 +42,19 @@ monitor: build ## Print decoded MIDI events without running the full daemon
 
 monitor-audio: build ## Print live PipeWire sinks/sources/streams and change events
 	./$(BIN) monitor-audio
+
+install-user: build ## Install knobd + the systemd user unit into ~/.local (M04; full packaging is M12)
+	install -Dm755 $(BIN) $(PREFIX)/bin/knobd
+	install -Dm644 packaging/systemd/knobd.service $(UNITDIR)/knobd.service
+	systemctl --user daemon-reload
+	@echo "installed $(PREFIX)/bin/knobd and $(UNITDIR)/knobd.service"
+	@echo "enable and start it with:"
+	@echo "    systemctl --user enable --now knobd.service"
+
+uninstall-user: ## Remove what install-user installed
+	-systemctl --user disable --now knobd.service
+	rm -f $(UNITDIR)/knobd.service $(PREFIX)/bin/knobd
+	systemctl --user daemon-reload
 
 ui-install: ## Install UI dependencies
 	cd ui && npm install

@@ -7,10 +7,13 @@ configurable macros (mute, solo, scenes, focused-app binding, media
 transport, and more). Configuration happens through a desktop UI; the
 daemon itself runs headless as a systemd user service.
 
-**Status: scaffolding.** No feature is implemented yet. See
-[`specs/README.md`](specs/README.md) for the milestone plan and
-[`specs/reference/`](specs/reference/) for the hardware/environment facts
-this project is built on.
+**Status: usable.** Turning a bound knob changes an application's
+volume; the fader follows a target's level continuously; a mute toggle
+converges a multi-stream app instead of oscillating it. Zero-config
+"grab whatever I'm focused on" (`knob.assign_focused_app`) and the rest
+of the config UI are still ahead — see [`specs/README.md`](specs/README.md)
+for the milestone plan and [`specs/reference/`](specs/reference/) for
+the hardware/environment facts this project is built on.
 
 ## Repository layout
 
@@ -41,6 +44,36 @@ cd daemon && go build ./... && go vet ./...
 ```
 
 The UI is scaffolded but not buildable yet — see `ui/README.md`.
+
+## Running as a systemd user service
+
+Full packaging is M12; for now, `make install-user` copies the binary
+and the unit file into place:
+
+```bash
+make install-user
+systemctl --user enable --now knobd.service
+journalctl --user -u knobd -f
+```
+
+`make uninstall-user` removes what that installed. Once it's running:
+
+```bash
+curl --unix-socket $XDG_RUNTIME_DIR/knobd.sock http://localhost/config
+curl --unix-socket $XDG_RUNTIME_DIR/knobd.sock http://localhost/state
+curl -X PUT --unix-socket $XDG_RUNTIME_DIR/knobd.sock http://localhost/config -d @newconfig.json
+```
+
+`PUT /config` takes effect immediately, no restart needed. After a hand
+edit to `~/.config/knobd/config.json` instead, `systemctl --user reload
+knobd` picks it up.
+
+It's normal for the daemon to start and sit there doing nothing if no
+controller is plugged in or PipeWire isn't reachable yet — both are
+discover-wait-reconnect, not startup failures. `GET /state` is the
+place to check: it reports the MIDI device's and PipeWire's connection
+status directly, rather than leaving "why isn't anything happening" a
+guessing game.
 
 ## Where to start reading
 

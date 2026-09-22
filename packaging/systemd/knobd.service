@@ -14,6 +14,11 @@ Type=simple
 # /usr/lib/knobd/knobd or ~/.local/bin/knobd) once packaging exists —
 # %h expands to the invoking user's home directory under systemd --user.
 ExecStart=%h/.local/bin/knobd
+# SIGHUP reloads config.json from disk (for a hand edit -- PUT /config's
+# live path into the running engine needs no reload at all). See
+# specs/milestones/M04-mapping-engine-daemon.md's Design section for why
+# this is SIGHUP-and-not-inotify.
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2s
 

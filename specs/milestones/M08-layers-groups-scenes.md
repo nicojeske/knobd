@@ -98,6 +98,7 @@ afterward, not just muted-and-forgotten.
   implementation detail — the Design section above picks "no, entries
   are fixed at scene-creation time" as a starting assumption; revisit if
   it feels wrong once built.
-- Interaction between solo/duck and the dynamic app pool (M04) needs a
-  decision: does a duck-while-held affect newly-arriving pooled streams
-  too, or only streams that existed when the hold started?
+- ~~Interaction between solo/duck and the dynamic app pool~~ — moot; M04
+  dropped the dynamic app pool entirely (mappings are explicit-only; see
+  `specs/milestones/M04-mapping-engine-daemon.md`'s Status). Solo/duck
+  only ever need to consider explicitly-bound and `all_streams` targets.

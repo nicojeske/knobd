@@ -104,6 +104,20 @@ func (v *VolumeHandlers) ObserveState(ref audio.Ref, st audio.VolumeState) {
 	c.known = true
 }
 
+// CachedLevel returns ref's last-known volume/mute state without a
+// backend round trip, for a caller (engine's GET /state snapshot) that
+// wants a cheap best-effort read rather than a guaranteed-fresh one. ok
+// is false if nothing has been observed or written for ref yet.
+func (v *VolumeHandlers) CachedLevel(ref audio.Ref) (audio.VolumeState, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	c, ok := v.cache[ref]
+	if !ok || !c.known {
+		return audio.VolumeState{}, false
+	}
+	return c.state, true
+}
+
 func (v *VolumeHandlers) setCacheLocked(ref audio.Ref, st audio.VolumeState) {
 	c, ok := v.cache[ref]
 	if !ok {

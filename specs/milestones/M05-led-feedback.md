@@ -12,9 +12,9 @@ M04 (a running engine with resolved volume state to display).
 
 The X-Touch Mini's own LEDs become the mixer's display: each bound
 encoder's ring shows its target's current volume, each mute-capable
-button's LED shows mute state, an unbound (pooled or genuinely unbound)
-encoder's ring is blank, and assigning a knob to the focused app
-(M06's `knob.assign_focused_app`) flashes a confirmation.
+button's LED shows mute state, an unbound encoder's ring is blank, and
+assigning a knob to the focused app (M06's `knob.assign_focused_app`)
+flashes a confirmation.
 
 ## Scope
 

@@ -15,8 +15,8 @@ is in scope for that milestone; it doesn't need to happen earlier.
 
 | Action | Status |
 |---|---|
-| `volume.adjust` — the default | Has a type — [M03](../milestones/M03-audio-control.md)/[M04](../milestones/M04-mapping-engine-daemon.md) |
-| `volume.balance` — L/R pan | Has a type — M03 |
+| `volume.adjust` — the default | Implemented — [M03](../milestones/M03-audio-control.md)/[M04](../milestones/M04-mapping-engine-daemon.md) |
+| `volume.balance` — L/R pan | **Not planned.** `audio.Backend` has no per-channel volume write (`VolumeState.Channels` is read-only, used only to preserve balance across a `SetVolume`), and stereo balance isn't a feature this project wants. The type is kept (M01) but has no registered handler as of M04. |
 | `media.seek` | Has a type — [M09](../milestones/M09-media-transport-mpris.md) |
 | ★ `app.cycle` — scroll through currently-playing apps like a real mixer's channel strip | Planned — M08 |
 | `sink.cycle` (scroll rather than one-button-per-device) | Planned — [M11](../milestones/M11-extended-actions.md) |
@@ -24,12 +24,22 @@ is in scope for that milestone; it doesn't need to happen earlier.
 | `scroll.emulate` | Planned — M11 |
 | `desktop.switch` | Planned — M11 |
 
+## Fader (move)
+
+The fader is a continuous control, not a button or an encoder: it
+produces `model.GestureMove` (added in M04) with an absolute 0-127
+position rather than a press or a relative turn.
+
+| Action | Status |
+|---|---|
+| `volume.follow` — the target's volume tracks the fader's position between `MinPercent` and `MaxPercent`, no response curve | Implemented — M04 |
+
 ## Audio buttons
 
 | Action | Status |
 |---|---|
-| `volume.mute_toggle` | Has a type — M03/M04 |
-| `volume.set` — jump to a preset level | Has a type — M03 |
+| `volume.mute_toggle` | Implemented — M03/M04 |
+| `volume.set` — jump to a preset level | Implemented — M03/M04 |
 | ★ `audio.solo_toggle` — mute everything but the target | Has a type — [M08](../milestones/M08-layers-groups-scenes.md) |
 | ★ `audio.duck_hold` — while held, drop everything except the target to a low percentage | Has a type — M08 |
 | `audio.move_to_sink` — send an app's audio to another output | Planned — M11 |
@@ -55,9 +65,9 @@ decided at M08 design time, not baked into the action types themselves
 
 | Action | Status |
 |---|---|
-| ★ `knob.assign_focused_app` — bind the triggering encoder to whatever app is currently focused | Has a type — M04/[M06](../milestones/M06-focus-tracking.md) |
-| `knob.clear` — remove the triggering control's binding | Has a type — M04 |
-| `knob.lock_toggle` — stop a knob responding to turns, to avoid accidental nudges | Has a type — M04 |
+| ★ `knob.assign_focused_app` — bind the triggering encoder to whatever app is currently focused | Has a type (M01) — [M06](../milestones/M06-focus-tracking.md) implements the handler; this is knobd's actual zero-configuration story now that the dynamic app pool (below) has been dropped |
+| `knob.clear` — remove the triggering control's binding | Has a type (M01) — not yet scheduled; M04 left it unimplemented (no handler registered) |
+| `knob.lock_toggle` — stop a knob responding to turns, to avoid accidental nudges | Has a type (M01) — not yet scheduled; M04 left it unimplemented (no handler registered) |
 | ★ `layer.momentary` — active only while held (side buttons, by default) | Has a type — M08 |
 | ★ `layer.latch` — active until switched again | Has a type — M08 |
 | `layer.cycle` — advance through a fixed layer order | Has a type — M08 |
@@ -96,10 +106,12 @@ decided at M08 design time, not baked into the action types themselves
 
 ## Cross-cutting behaviours (not actions on a specific control)
 
-- ★ **Dynamic app pool** — an encoder with no explicit binding
-  auto-attaches to whatever is newly making sound (newest first),
-  releasing when that stream ends. Makes the mixer useful with zero
-  configuration. Planned for M04.
+- **Dynamic app pool — dropped.** The original idea (an encoder with no
+  explicit binding auto-attaches to whatever is newly making sound) was
+  planned for M04 but was rejected during that milestone's planning:
+  mappings should be configured explicitly. `knob.assign_focused_app`
+  (above, M06) is the intended zero-configuration path instead — press
+  a knob, it grabs whatever window is currently focused.
 - ★ **LED ring as the display** — the ring shows volume, the button LED
   shows mute state, so the surface communicates without looking at a
   screen. Planned for M05, deliberately scheduled early rather than as

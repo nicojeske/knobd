@@ -48,10 +48,8 @@ type Invocation struct {
 	// At is the hardware timestamp the triggering device.Event carried.
 	At time.Time
 
-	// Refs are the live audio entities Target (or, for the dynamic-pool
-	// case a later milestone may add, some other selection with no
-	// model.Target at all) resolved to at dispatch time. See the type's
-	// doc comment above: use this, not Target.
+	// Refs are the live audio entities Target resolved to at dispatch
+	// time. See the type's doc comment above: use this, not Target.
 	Refs []audio.Ref
 	// Target is the action's configured target, carried for error
 	// messages only.

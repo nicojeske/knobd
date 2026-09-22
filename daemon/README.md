@@ -7,13 +7,15 @@ constraint, not just a default.
 
 ```
 cmd/knobd/          main.go — subcommand dispatch, flag parsing, config
-                     load, logging, signal handling. `knobd monitor`
-                     (monitor.go, M02) prints decoded MIDI events; `knobd
-                     monitor-audio` (monitor_audio.go, M03) prints the
-                     live PipeWire sink/source/stream graph and its
-                     change events. The bare daemon path does not yet
-                     start audio/focus/engine/api together — those are
-                     still scaffolding (see below).
+                     load, logging, signal handling, and (M04) wiring
+                     midi.Supervisor/audio.Supervisor/focus/engine/api
+                     together and running them until a signal or a fatal
+                     component error. configstore.go/state.go are the
+                     api.ConfigStore/api.StateProvider adapters. `knobd
+                     monitor` (monitor.go, M02) prints decoded MIDI
+                     events; `knobd monitor-audio` (monitor_audio.go,
+                     M03) prints the live PipeWire sink/source/stream
+                     graph and its change events.
 cmd/schemagen/       regenerates docs/config.schema.json (`make schema`).
                      A separate binary from knobd so its dependency
                      (github.com/invopop/jsonschema) never links into the
@@ -46,17 +48,30 @@ internal/
                       a self-healing, reconnecting Supervisor
                       (supervisor.go, mirroring midi's), real AppMatcher
                       resolution (matcher.go), and the volume response
-                      curve (curve.go). Wiring any of this into MIDI
-                      input or the mapping engine: TODO(M04).
-  focus/             Provider interface + FakeProvider. Real KWin-script
-                      backend: TODO(M06).
-  engine/            Event loop skeleton. Real gesture detection, layer
-                      resolution, and dispatch: TODO(M04).
-  actions/           Generic action dispatch registry (implemented).
-                      Concrete handlers per action family: TODO(M03,
-                      M08, M09, M11 — see registry.go's doc comment).
-  api/               Unix-socket HTTP+WS server skeleton. Real handlers:
-                      TODO(M04, M07).
+                      curve (curve.go).
+  focus/             Provider interface + FakeProvider, plus (M04)
+                      Unavailable(), the no-op Provider knobd runs with
+                      until M06 lands a real KWin-script backend.
+  engine/            (M04) Engine.Run: Port.Read -> Codec.Decode ->
+                      gestureMachine (gesture.go, the press/hold/
+                      double-press state machine) -> bindingIndex
+                      (bindings.go) -> resolver (resolver.go, Target ->
+                      live audio.Refs) -> a single dispatcher goroutine
+                      (dispatch.go) that owns every blocking
+                      audio.Backend/actions.Registry call and coalesces
+                      rapid turns/fader moves. SetConfig/Snapshot
+                      (state.go) are channel round trips served by the
+                      same run goroutine, so there are no mutexes here.
+  actions/           Generic action dispatch registry (registry.go) plus
+                      (M04) the volume.adjust/set/mute_toggle/follow
+                      handlers (volume.go) — the first real
+                      actions.Handler implementations. Remaining
+                      families: TODO(M08, M09, M11 — see registry.go's
+                      doc comment).
+  api/               (M04) GET/PUT /config and GET /state over the unix
+                      socket (server.go, handlers.go, state.go). The
+                      WebSocket push channel and OpenAPI generation:
+                      TODO(M07).
 ```
 
 Every package that talks to hardware or the desktop environment is
