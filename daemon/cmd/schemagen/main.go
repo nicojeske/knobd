@@ -1,6 +1,8 @@
-// Command schemagen regenerates docs/config.schema.json from
-// daemon/internal/model, via daemon/internal/schema. It is a separate
-// binary from cmd/knobd, not a knobd flag, so that
+// Command schemagen regenerates knobd's generated documentation from
+// daemon/internal/model and daemon/internal/api, via daemon/internal/schema:
+// docs/config.schema.json (JSON Schema), docs/openapi.json (OpenAPI 3.1),
+// and docs/device-layout.json (hardware index ranges and gesture matrix).
+// It is a separate binary from cmd/knobd, not a knobd flag, so that
 // github.com/invopop/jsonschema and its transitive dependencies never
 // link into the daemon that actually ships (see
 // specs/adr/0005-schema-generation-via-invopop.md).
@@ -22,12 +24,26 @@ func main() {
 }
 
 func run() error {
-	out := flag.String("o", "docs/config.schema.json", "path to write the generated JSON Schema to")
+	kind := flag.String("kind", "config", "which document to generate: config, openapi, or device-layout")
+	out := flag.String("o", "docs/config.schema.json", "path to write the generated document to")
 	flag.Parse()
 
-	data, err := schema.Generate()
+	var (
+		data []byte
+		err  error
+	)
+	switch *kind {
+	case "config":
+		data, err = schema.Generate()
+	case "openapi":
+		data, err = schema.GenerateOpenAPI()
+	case "device-layout":
+		data, err = schema.GenerateDeviceLayout()
+	default:
+		return fmt.Errorf("unknown -kind %q (want config, openapi, or device-layout)", *kind)
+	}
 	if err != nil {
-		return fmt.Errorf("generate schema: %w", err)
+		return fmt.Errorf("generate %s: %w", *kind, err)
 	}
 	if err := os.WriteFile(*out, data, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", *out, err)

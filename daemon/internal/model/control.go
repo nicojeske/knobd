@@ -50,27 +50,34 @@ type Control struct {
 	Index int         `json:"index"`
 }
 
+// ControlIndexRange returns the valid [min,max] Index range for k (both
+// inclusive), and false if k is not a known ControlKind. Control.Validate
+// and daemon/internal/schema's device-layout.json generation (which
+// feeds ui/'s visual panel and binding editor) both read this instead of
+// duplicating the per-kind numbers.
+func ControlIndexRange(k ControlKind) (min, max int, ok bool) {
+	switch k {
+	case ControlEncoder, ControlEncoderPush:
+		return 1, 8, true
+	case ControlButton:
+		return 1, 16, true
+	case ControlSideButton:
+		return 1, 2, true
+	case ControlFader:
+		return 1, 1, true
+	default:
+		return 0, 0, false
+	}
+}
+
 // Validate reports whether the Control's Index is in range for its Kind.
 func (c Control) Validate() error {
-	switch c.Kind {
-	case ControlEncoder, ControlEncoderPush:
-		if c.Index < 1 || c.Index > 8 {
-			return fmt.Errorf("model: %s index %d out of range [1,8]", c.Kind, c.Index)
-		}
-	case ControlButton:
-		if c.Index < 1 || c.Index > 16 {
-			return fmt.Errorf("model: button index %d out of range [1,16]", c.Index)
-		}
-	case ControlSideButton:
-		if c.Index < 1 || c.Index > 2 {
-			return fmt.Errorf("model: side_button index %d out of range [1,2]", c.Index)
-		}
-	case ControlFader:
-		if c.Index != 1 {
-			return fmt.Errorf("model: fader index %d must be 1", c.Index)
-		}
-	default:
+	min, max, ok := ControlIndexRange(c.Kind)
+	if !ok {
 		return fmt.Errorf("model: unknown control kind %q", c.Kind)
+	}
+	if c.Index < min || c.Index > max {
+		return fmt.Errorf("model: %s index %d out of range [%d,%d]", c.Kind, c.Index, min, max)
 	}
 	return nil
 }
@@ -123,6 +130,24 @@ func (k ControlKind) SupportsGesture(g Gesture) bool {
 		return g == GesturePress || g == GestureHold || g == GestureRelease || g == GestureDoublePress
 	case ControlFader:
 		return g == GestureMove
+	default:
+		return false
+	}
+}
+
+// HasLED reports whether a control kind has any LED at all on the
+// X-Touch Mini: encoder (the ring) and button/side_button (a single
+// on/off/blink LED) do; encoder_push and fader do not. Mirrors
+// daemon/internal/device.EncodeLED's ErrNoLED cases exactly -- kept here
+// rather than in device so daemon/internal/schema's device-layout.json
+// generation (which feeds ui/'s visual panel) doesn't need to import
+// device, which in turn imports model.
+func (k ControlKind) HasLED() bool {
+	switch k {
+	case ControlEncoder, ControlButton, ControlSideButton:
+		return true
+	case ControlEncoderPush, ControlFader:
+		return false
 	default:
 		return false
 	}

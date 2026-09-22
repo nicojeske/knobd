@@ -36,6 +36,19 @@ const (
 	CodeInternal                 ErrorCode = "internal"
 )
 
+// ErrorCodes returns every ErrorCode this package can produce, for
+// daemon/internal/schema's OpenAPI enum generation -- mirrors
+// model.ControlKinds() and friends.
+func ErrorCodes() []ErrorCode {
+	return []ErrorCode{
+		CodeInvalidJSON,
+		CodeUnsupportedSchemaVersion,
+		CodeInvalidConfig,
+		CodeUnavailable,
+		CodeInternal,
+	}
+}
+
 // ErrorResponse is the JSON body of every non-2xx response. Message
 // carries the full %w error chain verbatim -- including internal detail
 // that would be an information leak on a public API, but this API is

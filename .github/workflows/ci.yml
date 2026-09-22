@@ -24,10 +24,10 @@ jobs:
         run: cd daemon && go test ./...
       - name: go build
         run: cd daemon && go build ./...
-      - name: schema up to date
+      - name: schemas up to date
         run: |
-          cd daemon && go run ./cmd/schemagen -o ../docs/config.schema.json
-          cd .. && git diff --exit-code -- docs/config.schema.json
+          make schema
+          git diff --exit-code -- docs/config.schema.json docs/openapi.json docs/device-layout.json
 
   ui:
     name: ui (TypeScript)

@@ -1,0 +1,1184 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "knobd",
+    "description": "knobd's local control API, served over a unix domain socket (see specs/adr/0004-ipc-over-unix-socket.md). Not a public/networked API: filesystem permissions on the socket are the entire access control mechanism.",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/config": {
+      "get": {
+        "operationId": "getConfig",
+        "summary": "Get the running configuration",
+        "description": "Returns the configuration the daemon is running right now.",
+        "responses": {
+          "200": {
+            "description": "The running configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No configuration store is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putConfig",
+        "summary": "Replace the running configuration",
+        "description": "Validates, applies to the running engine, and durably persists a new configuration. Takes effect immediately; no restart needed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Config"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Applied and persisted."
+          },
+          "400": {
+            "description": "Malformed JSON, an unsupported schemaVersion, or a config that fails validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Applying or persisting failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No configuration store is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/state": {
+      "get": {
+        "operationId": "getState",
+        "summary": "Get a point-in-time state snapshot",
+        "description": "Device/audio/focus/profile status and every currently-bound control's resolved value. Pollable; see GET /events for a live push feed of the same shape.",
+        "responses": {
+          "200": {
+            "description": "The current snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/State"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No state provider is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Action": {
+        "oneOf": [
+          {
+            "properties": {
+              "type": {
+                "const": "audio.duck_hold"
+              },
+              "params": {
+                "$ref": "#/components/schemas/AudioDuckHoldAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "audio.solo_toggle"
+              },
+              "params": {
+                "$ref": "#/components/schemas/AudioSoloToggleAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "knob.assign_focused_app"
+              },
+              "params": {
+                "$ref": "#/components/schemas/KnobAssignFocusedAppAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "knob.clear"
+              },
+              "params": {
+                "$ref": "#/components/schemas/KnobClearAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "knob.lock_toggle"
+              },
+              "params": {
+                "$ref": "#/components/schemas/KnobLockToggleAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "layer.cycle"
+              },
+              "params": {
+                "$ref": "#/components/schemas/LayerCycleAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "layer.latch"
+              },
+              "params": {
+                "$ref": "#/components/schemas/LayerLatchAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "layer.momentary"
+              },
+              "params": {
+                "$ref": "#/components/schemas/LayerMomentaryAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "media.seek"
+              },
+              "params": {
+                "$ref": "#/components/schemas/MediaSeekAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "media.transport"
+              },
+              "params": {
+                "$ref": "#/components/schemas/MediaTransportAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "mic.push_to_mute"
+              },
+              "params": {
+                "$ref": "#/components/schemas/MicPushToMuteAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "mic.push_to_talk"
+              },
+              "params": {
+                "$ref": "#/components/schemas/MicPushToTalkAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "scene.apply"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SceneApplyAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "scene.save"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SceneSaveAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "shell.run"
+              },
+              "params": {
+                "$ref": "#/components/schemas/ShellRunAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "sink.cycle_default"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SinkCycleDefaultAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "volume.adjust"
+              },
+              "params": {
+                "$ref": "#/components/schemas/VolumeAdjustAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "volume.balance"
+              },
+              "params": {
+                "$ref": "#/components/schemas/VolumeBalanceAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "volume.follow"
+              },
+              "params": {
+                "$ref": "#/components/schemas/VolumeFollowAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "volume.mute_toggle"
+              },
+              "params": {
+                "$ref": "#/components/schemas/VolumeMuteToggleAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "volume.set"
+              },
+              "params": {
+                "$ref": "#/components/schemas/VolumeSetAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          }
+        ]
+      },
+      "AppGroup": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "matcherIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "matcherIds"
+        ]
+      },
+      "AppMatcher": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "binaries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "appNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "nodeNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "desktopIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mediaNameRx": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "displayName"
+        ]
+      },
+      "AudioDuckHoldAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "duckPercent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "duckPercent"
+        ]
+      },
+      "AudioSoloToggleAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ]
+      },
+      "AudioState": {
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "lastError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connected"
+        ]
+      },
+      "Binding": {
+        "properties": {
+          "layer": {
+            "type": "integer"
+          },
+          "control": {
+            "$ref": "#/components/schemas/Control"
+          },
+          "gesture": {
+            "type": "string",
+            "enum": [
+              "turn",
+              "press",
+              "hold",
+              "release",
+              "double_press",
+              "move"
+            ]
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "layer",
+          "control",
+          "gesture",
+          "action"
+        ]
+      },
+      "Config": {
+        "properties": {
+          "schemaVersion": {
+            "type": "integer"
+          },
+          "activeProfileId": {
+            "type": "string"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/Profile"
+            },
+            "type": "array"
+          },
+          "appMatchers": {
+            "items": {
+              "$ref": "#/components/schemas/AppMatcher"
+            },
+            "type": "array"
+          },
+          "appGroups": {
+            "items": {
+              "$ref": "#/components/schemas/AppGroup"
+            },
+            "type": "array"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/Scene"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "activeProfileId",
+          "profiles",
+          "appMatchers",
+          "appGroups",
+          "scenes"
+        ]
+      },
+      "Control": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "encoder",
+              "encoder_push",
+              "button",
+              "side_button",
+              "fader"
+            ]
+          },
+          "index": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "index"
+        ]
+      },
+      "ControlState": {
+        "properties": {
+          "control": {
+            "$ref": "#/components/schemas/Control"
+          },
+          "gesture": {
+            "type": "string",
+            "enum": [
+              "turn",
+              "press",
+              "hold",
+              "release",
+              "double_press",
+              "move"
+            ]
+          },
+          "actionType": {
+            "type": "string",
+            "enum": [
+              "audio.duck_hold",
+              "audio.solo_toggle",
+              "knob.assign_focused_app",
+              "knob.clear",
+              "knob.lock_toggle",
+              "layer.cycle",
+              "layer.latch",
+              "layer.momentary",
+              "media.seek",
+              "media.transport",
+              "mic.push_to_mute",
+              "mic.push_to_talk",
+              "scene.apply",
+              "scene.save",
+              "shell.run",
+              "sink.cycle_default",
+              "volume.adjust",
+              "volume.balance",
+              "volume.follow",
+              "volume.mute_toggle",
+              "volume.set"
+            ]
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "resolved": {
+            "$ref": "#/components/schemas/ResolvedTarget"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "control",
+          "gesture",
+          "actionType"
+        ]
+      },
+      "DeviceState": {
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connected"
+        ]
+      },
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_json",
+              "unsupported_schema_version",
+              "invalid_config",
+              "unavailable",
+              "internal"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "FocusState": {
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "resourceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available"
+        ]
+      },
+      "KnobAssignFocusedAppAction": {
+        "properties": {
+          "stepPercent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "KnobClearAction": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "KnobLockToggleAction": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LayerCycleAction": {
+        "properties": {
+          "layerOrder": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LayerLatchAction": {
+        "properties": {
+          "layer": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "layer"
+        ]
+      },
+      "LayerMomentaryAction": {
+        "properties": {
+          "layer": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "layer"
+        ]
+      },
+      "MediaSeekAction": {
+        "properties": {
+          "seekMs": {
+            "type": "integer"
+          },
+          "playerRef": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seekMs"
+        ]
+      },
+      "MediaTransportAction": {
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "play_pause",
+              "next",
+              "previous",
+              "shuffle_toggle",
+              "repeat_cycle"
+            ]
+          },
+          "playerRef": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command"
+        ]
+      },
+      "MicPushToMuteAction": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "MicPushToTalkAction": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Profile": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/Binding"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "bindings"
+        ]
+      },
+      "ProfileState": {
+        "properties": {
+          "activeProfileId": {
+            "type": "string"
+          },
+          "activeLayer": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "activeProfileId",
+          "activeLayer"
+        ]
+      },
+      "ResolvedTarget": {
+        "properties": {
+          "refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "volumePercent": {
+            "type": "number"
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "refs"
+        ]
+      },
+      "Scene": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SceneEntry"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "entries"
+        ]
+      },
+      "SceneApplyAction": {
+        "properties": {
+          "sceneId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sceneId"
+        ]
+      },
+      "SceneEntry": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "volumePercent": {
+            "type": "number"
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "volumePercent",
+          "muted"
+        ]
+      },
+      "SceneSaveAction": {
+        "properties": {
+          "sceneId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sceneId"
+        ]
+      },
+      "ShellRunAction": {
+        "properties": {
+          "command": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command"
+        ]
+      },
+      "SinkCycleDefaultAction": {
+        "properties": {
+          "sinkNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sinkNames"
+        ]
+      },
+      "State": {
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "device": {
+            "$ref": "#/components/schemas/DeviceState"
+          },
+          "audio": {
+            "$ref": "#/components/schemas/AudioState"
+          },
+          "focus": {
+            "$ref": "#/components/schemas/FocusState"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileState"
+          },
+          "controls": {
+            "items": {
+              "$ref": "#/components/schemas/ControlState"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "now",
+          "device",
+          "audio",
+          "focus",
+          "profile",
+          "controls"
+        ]
+      },
+      "Target": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "default_sink",
+              "sink",
+              "default_source",
+              "source",
+              "app",
+              "group",
+              "focused",
+              "all_streams"
+            ]
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind"
+        ]
+      },
+      "VolumeAdjustAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "stepPercent": {
+            "type": "number"
+          },
+          "curveExponent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "stepPercent"
+        ]
+      },
+      "VolumeBalanceAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "step": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "step"
+        ]
+      },
+      "VolumeFollowAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "minPercent": {
+            "type": "number"
+          },
+          "maxPercent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ]
+      },
+      "VolumeMuteToggleAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ]
+      },
+      "VolumeSetAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "percent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "percent"
+        ]
+      }
+    }
+  }
+}

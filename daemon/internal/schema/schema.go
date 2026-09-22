@@ -8,17 +8,23 @@
 // Reflector.Mapper from the outside to fill in the two things plain
 // struct-field reflection can't produce on its own:
 //
-//   - the five named string enums (ControlKind, Gesture, TargetKind,
-//     MediaCommand, and the Action discriminator) get an explicit
-//     `enum`/`const`, sourced from model's own accessors
-//     (ControlKinds, Gestures, TargetKinds, MediaCommands,
-//     ActionTypes) rather than duplicated here.
+//   - the named string enums (ControlKind, Gesture, TargetKind,
+//     MediaCommand, ActionType, and api.ErrorCode) get an explicit
+//     `enum`/`const`, sourced from their own package's accessors
+//     (ControlKinds, Gestures, TargetKinds, MediaCommands, ActionTypes,
+//     api.ErrorCodes) rather than duplicated here.
 //   - model.Action is an interface; reflection can't see through it to
 //     the 20 concrete params types actionRegistry knows about. Config,
 //     Profile, and Binding below mirror model.Config/model.Profile/
 //     model.Binding's actual on-disk JSON shape (see binding.go's
 //     bindingJSON) but substitute actionDoc for the Action field, which
 //     the Mapper replaces with a oneOf built by actionSchemas.
+//
+// This package also emits docs/openapi.json (openapi.go, M07), which is
+// the one place daemon/internal/api is imported from outside itself --
+// a one-way edge (schema -> api) that does not create a cycle and does
+// not pull github.com/invopop/jsonschema into api or cmd/knobd (see
+// specs/adr/0005-schema-generation-via-invopop.md).
 package schema
 
 import (
@@ -28,6 +34,7 @@ import (
 
 	"github.com/invopop/jsonschema"
 
+	"github.com/njeske/knobd/internal/api"
 	"github.com/njeske/knobd/internal/model"
 )
 
@@ -86,6 +93,10 @@ func mapper(t reflect.Type) *jsonschema.Schema {
 		return enumSchema(model.TargetKinds())
 	case reflect.TypeOf(model.MediaCommand("")):
 		return enumSchema(model.MediaCommands())
+	case reflect.TypeOf(model.ActionType("")):
+		return enumSchema(model.ActionTypes())
+	case reflect.TypeOf(api.ErrorCode("")):
+		return enumSchema(api.ErrorCodes())
 	case reflect.TypeOf(actionDoc{}):
 		return &jsonschema.Schema{Ref: "#/$defs/Action"}
 	default:

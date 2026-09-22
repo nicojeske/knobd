@@ -14,12 +14,11 @@ ui/*.tsbuildinfo
 ui/src-tauri/target/
 ui/src-tauri/Cargo.lock.bak
 
-# Generated, but committed and drift-checked in CI:
-#   docs/config.schema.json (regenerate via `make schema`)
-#   ui/src/types/config.ts  (regenerate via `npm run codegen` in ui/)
-# docs/openapi.json is generated too, but stays ignored until M07 gives
-# daemon/internal/api something to describe.
-docs/openapi.json
+# Generated, but committed and drift-checked in CI (regenerate all three
+# via `make schema`; ui/'s TypeScript types via `npm run codegen`):
+#   docs/config.schema.json
+#   docs/openapi.json
+#   docs/device-layout.json
 
 # Editors / OS
 .DS_Store

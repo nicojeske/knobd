@@ -31,8 +31,10 @@ lint: fmt-check vet ## fmt-check + vet, plus golangci-lint if installed
 		echo "golangci-lint not installed; ran gofmt+vet only"; \
 	fi
 
-schema: ## Regenerate docs/config.schema.json (see daemon/internal/schema)
-	cd $(DAEMON_DIR) && go run ./cmd/schemagen -o ../docs/config.schema.json
+schema: ## Regenerate docs/{config.schema,openapi,device-layout}.json (see daemon/internal/schema)
+	cd $(DAEMON_DIR) && go run ./cmd/schemagen -kind config -o ../docs/config.schema.json
+	cd $(DAEMON_DIR) && go run ./cmd/schemagen -kind openapi -o ../docs/openapi.json
+	cd $(DAEMON_DIR) && go run ./cmd/schemagen -kind device-layout -o ../docs/device-layout.json
 
 run: build ## Run the daemon in the foreground with debug logging
 	./$(BIN) --log-level debug
