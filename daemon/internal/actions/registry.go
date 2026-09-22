@@ -78,6 +78,12 @@ func NewRegistry() *Registry {
 	return &Registry{handlers: make(map[model.ActionType]Handler)}
 }
 
+// HandlerFunc adapts a plain function to Handler, the way
+// http.HandlerFunc adapts a function to http.Handler.
+type HandlerFunc func(ctx context.Context, inv Invocation) error
+
+func (f HandlerFunc) Execute(ctx context.Context, inv Invocation) error { return f(ctx, inv) }
+
 // Register associates a Handler with an ActionType, overwriting any
 // previous registration.
 func (r *Registry) Register(actionType model.ActionType, h Handler) {
