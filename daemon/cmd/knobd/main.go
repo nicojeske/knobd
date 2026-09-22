@@ -17,7 +17,14 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/njeske/knobd/internal/actions"
+	"github.com/njeske/knobd/internal/api"
+	"github.com/njeske/knobd/internal/audio"
 	"github.com/njeske/knobd/internal/config"
+	"github.com/njeske/knobd/internal/device"
+	"github.com/njeske/knobd/internal/engine"
+	"github.com/njeske/knobd/internal/focus"
+	"github.com/njeske/knobd/internal/midi"
 )
 
 func main() {
@@ -56,6 +63,7 @@ func runDaemon(args []string) error {
 	fs := flag.NewFlagSet("knobd", flag.ContinueOnError)
 	logLevel := fs.String("log-level", "info", "log level: debug, info, warn, error")
 	configPath := fs.String("config", "", "path to config.json (default: $XDG_CONFIG_HOME/knobd/config.json)")
+	socketPath := fs.String("socket", "", "path to the local API unix socket (default: $XDG_RUNTIME_DIR/knobd.sock)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -87,18 +95,132 @@ func runDaemon(args []string) error {
 		"profiles", len(cfg.Profiles),
 	)
 
+	sock := *socketPath
+	if sock == "" {
+		p, err := api.SocketPath()
+		if err != nil {
+			return fmt.Errorf("resolve socket path: %w", err)
+		}
+		sock = p
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// TODO(M03-M04): construct audio.New, focus.New, engine.New, api.New
-	// and run them until ctx is canceled, using midi.NewSupervisor and
-	// device.NewXTouchMiniCodec (M02, see monitor.go) as the input side.
-	// Until then, knobd starts, loads its config, and exits cleanly on
-	// SIGINT/SIGTERM — enough to prove the foundations (config
-	// load/save/migrate, logging, module layout) actually work
-	// end to end.
-	logger.Info("knobd scaffold running; press Ctrl+C to exit (no audio/focus/engine backends wired up yet, see specs/milestones)")
-	<-ctx.Done()
+	// midi.Supervisor and audio.Supervisor both start connecting in the
+	// background immediately and never block waiting for a device or
+	// PipeWire to actually be there -- that's deliberate. No physical
+	// X-Touch Mini plugged in, or pipewire-pulse not running, is not a
+	// startup failure: the supervisors' whole contract is
+	// discover-wait-reconnect, PUT /config and GET /state must work with
+	// nothing attached (so M07's UI is usable before you plug anything
+	// in), and treating either as fatal would turn "controller unplugged"
+	// into a Restart=on-failure crash loop under systemd.
+	midiSup := midi.NewSupervisor(midi.SupervisorOptions{Logger: logger})
+	defer midiSup.Close()
+
+	audioSup := audio.NewSupervisor(audio.SupervisorOptions{Logger: logger})
+	defer audioSup.Close()
+
+	codec := device.NewXTouchMiniCodec()
+
+	focusProv := focus.Unavailable()
+	focusAvailable := false
+	if p, ferr := focus.New(ctx); ferr != nil {
+		logger.Warn("focus tracking unavailable; 'focused' targets and knob.assign_focused_app will not resolve until M06", "err", ferr)
+	} else {
+		focusProv = p
+		focusAvailable = true
+		defer focusProv.Close()
+	}
+
+	registry := actions.NewRegistry()
+	volumeHandlers := actions.NewVolumeHandlers(audioSup, actions.VolumeOptions{Logger: logger})
+	volumeHandlers.Register(registry)
+
+	eng := engine.New(engine.Deps{
+		Port:     midiSup,
+		Codec:    codec,
+		Audio:    audioSup,
+		Focus:    focusProv,
+		Config:   cfg,
+		Registry: registry,
+		Logger:   logger,
+		Observer: volumeHandlers,
+	})
+
+	store := newConfigStore(path, cfg, eng, logger)
+	status := &connStatus{}
+	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
+	srv := api.New(api.Options{Config: store, State: state, Logger: logger})
+
+	logger.Info("serving the local API", "socket", sock)
+
+	// SIGHUP reloads config.json from disk -- for a hand edit, as
+	// opposed to PUT /config's live path into the running engine (both
+	// end up going through configStore.SetConfig). See
+	// specs/milestones/M04-mapping-engine-daemon.md's Design section for
+	// why this is SIGHUP-and-not-inotify.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	type exit struct {
+		name string
+		err  error
+	}
+	// Three components race to exit first; whichever does cancels the
+	// other two. Hand-rolled rather than golang.org/x/sync/errgroup: it's
+	// ~20 lines, it would be this binary's third direct dependency in a
+	// project whose ADR 0001 makes the single-static-binary property
+	// explicit, and errgroup discards every error after the first, when
+	// the second/third component's exit reason is worth logging too.
+	exits := make(chan exit, 3)
+	go func() { exits <- exit{"engine", eng.Run(runCtx)} }()
+	go func() { exits <- exit{"api", srv.ListenAndServe(runCtx, sock)} }()
+	go func() {
+		watchConnections(runCtx, midiSup, audioSup, status)
+		exits <- exit{"connections", nil}
+	}()
+	go func() {
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-hup:
+				reloaded, lerr := config.Load(path)
+				if lerr != nil {
+					logger.Error("SIGHUP reload: load config failed", "path", path, "err", lerr)
+					continue
+				}
+				if serr := store.SetConfig(runCtx, reloaded); serr != nil {
+					logger.Error("SIGHUP reload: apply config failed", "err", serr)
+					continue
+				}
+				logger.Info("reloaded config from disk", "path", path)
+			}
+		}
+	}()
+
+	first := <-exits
+	cancelRun()
+	var fatal error
+	if first.err != nil {
+		fatal = fmt.Errorf("%s: %w", first.name, first.err)
+	}
+	for i := 0; i < 2; i++ {
+		e := <-exits
+		if e.err != nil {
+			logger.Error("component stopped", "component", e.name, "err", e.err)
+			if fatal == nil {
+				fatal = fmt.Errorf("%s: %w", e.name, e.err)
+			}
+		}
+	}
+
 	logger.Info("shutting down")
-	return nil
+	return fatal
 }
