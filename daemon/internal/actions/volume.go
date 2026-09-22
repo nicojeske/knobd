@@ -27,10 +27,13 @@ type VolumeOptions struct {
 	// Logger receives clamp/error diagnostics. Nil means slog.Default().
 	Logger *slog.Logger
 	// OnApplied, if set, is called after every successful volume write
-	// with the ref and the level actually applied. Not used by M04 --
-	// it exists as a seam for M05's LED feedback, in case driving the
-	// ring off audio.Backend.Subscribe's own echo turns out to have
-	// visible latency.
+	// or mute change with the ref and the state actually applied --
+	// M05's LED feedback seam, wired to the local echo of a write knobd
+	// just made itself, in case driving the ring/button off
+	// audio.Backend.Subscribe's own echo turns out to have visible
+	// latency. Called from writeVolume, ensureUnmuted (an implicit
+	// un-mute), and executeMuteToggle -- every place this file commits a
+	// new VolumeState to the cache.
 	OnApplied func(audio.Ref, audio.VolumeState)
 }
 
@@ -153,12 +156,27 @@ func (v *VolumeHandlers) getCached(ctx context.Context, ref audio.Ref) (audio.Vo
 // on a muted target and hearing nothing is a dead end -- this is what
 // makes adjust/set/follow match KDE's behavior rather than pavucontrol's
 // (see specs/milestones/M04-mapping-engine-daemon.md's decisions table).
+//
+// Commits the new Muted=false state to the cache and fires OnApplied
+// itself, rather than leaving that to the writeVolume call that follows
+// every caller here: if that write then fails, the mute state has still
+// actually changed on the backend, and a caller relying on the cache
+// (or a button LED relying on OnApplied) must not be left believing the
+// target is still muted.
 func (v *VolumeHandlers) ensureUnmuted(ctx context.Context, ref audio.Ref, current audio.VolumeState) error {
 	if !current.Muted {
 		return nil
 	}
 	if err := v.backend.SetMute(ctx, ref, false); err != nil {
 		return fmt.Errorf("actions: un-mute %+v: %w", ref, err)
+	}
+	st := current
+	st.Muted = false
+	v.mu.Lock()
+	v.setCacheLocked(ref, st)
+	v.mu.Unlock()
+	if v.opts.OnApplied != nil {
+		v.opts.OnApplied(ref, st)
 	}
 	return nil
 }
@@ -343,6 +361,9 @@ func (v *VolumeHandlers) executeMuteToggle(ctx context.Context, inv Invocation) 
 		v.mu.Lock()
 		v.setCacheLocked(ref, st)
 		v.mu.Unlock()
+		if v.opts.OnApplied != nil {
+			v.opts.OnApplied(ref, st)
+		}
 	}
 	return errors.Join(errs...)
 }

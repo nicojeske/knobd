@@ -7,12 +7,14 @@ import (
 	"github.com/njeske/knobd/internal/model"
 )
 
-// ledRingMaxPosition is the highest real LED position on an encoder
-// ring: 11 of the ring's 13 physical segments are individually
-// addressable, confirmed live via `knobd calibrate-leds` (values 11,
-// 12, and 15 all rendered identically — the hardware itself clamps).
-// See specs/reference/xtouch-mini-midi-map.md's LED section.
-const ledRingMaxPosition = 11
+// MaxRingPosition is the highest real LED position on an encoder ring:
+// 11 of the ring's 13 physical segments are individually addressable,
+// confirmed live via `knobd calibrate-leds` (values 11, 12, and 15 all
+// rendered identically — the hardware itself clamps). Exported so a
+// caller building an LEDUpdate (engine's led.go) can map a percentage
+// onto the real range without duplicating this number. See
+// specs/reference/xtouch-mini-midi-map.md's LED section.
+const MaxRingPosition = 11
 
 // ledButtonOnVelocity is the Note On velocity EncodeLED uses for a
 // button LED's "on" state. Velocities 3-127 all render as solid on;
@@ -39,8 +41,8 @@ func (xtouchMiniCodec) EncodeLED(update LEDUpdate) ([]midi.Message, error) {
 		if pos < 0 {
 			pos = 0
 		}
-		if pos > ledRingMaxPosition {
-			pos = ledRingMaxPosition
+		if pos > MaxRingPosition {
+			pos = MaxRingPosition
 		}
 		value := byte(update.Mode)<<4 | byte(pos)
 		return []midi.Message{{Status: 0xB0, Data1: cc, Data2: value}}, nil

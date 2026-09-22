@@ -93,6 +93,18 @@ type Engine struct {
 
 	configCh   chan configRequest
 	snapshotCh chan chan Snapshot
+	// ledCh is woken (coalescing, non-blocking) whenever LED state might
+	// have changed outside a MIDI/audio event Run already watches --
+	// currently, only actions.VolumeOptions.OnApplied's local echo of a
+	// write knobd just made itself (see NotifyLEDDirty and
+	// cmd/knobd/main.go's wiring).
+	ledCh chan struct{}
+	// repaintCh serves RepaintLEDs: a request to forget every
+	// last-pushed LED value and rewrite everything from scratch, for
+	// cmd/knobd/state.go's watchConnections to call after a device
+	// reconnect (see that file's doc comment for why it's the sole
+	// consumer of midi.Supervisor.Connected).
+	repaintCh chan chan struct{}
 }
 
 type configRequest struct {
@@ -109,6 +121,8 @@ func New(deps Deps) *Engine {
 		clk:        deps.Clock,
 		configCh:   make(chan configRequest),
 		snapshotCh: make(chan chan Snapshot),
+		ledCh:      make(chan struct{}, 1),
+		repaintCh:  make(chan chan struct{}),
 	}
 }
 
@@ -149,6 +163,41 @@ func (e *Engine) Snapshot(ctx context.Context) (Snapshot, error) {
 		return snap, nil
 	case <-ctx.Done():
 		return Snapshot{}, ctx.Err()
+	}
+}
+
+// NotifyLEDDirty wakes the run loop to recompute and (throttled) flush
+// LED state at the next opportunity. Safe to call concurrently with
+// Run, including from a different goroutine than Run's own -- it's the
+// seam actions.VolumeOptions.OnApplied uses (see cmd/knobd/main.go) so
+// a ring/button LED updates the instant knobd's own write to PipeWire
+// succeeds, rather than waiting for audio.Backend.Subscribe's echo of
+// it. Multiple calls before Run next looks coalesce into one wakeup;
+// a no-op if Run isn't consuming (not started yet, or already returned).
+func (e *Engine) NotifyLEDDirty() {
+	select {
+	case e.ledCh <- struct{}{}:
+	default:
+	}
+}
+
+// RepaintLEDs forces every LED-bearing control to be rewritten at the
+// next flush, regardless of what Engine believes it last pushed. Call
+// after the MIDI device reconnects -- the X-Touch Mini's rings and
+// buttons don't remember anything across a power cycle. Returns
+// ctx.Err() if Run isn't consuming before ctx is done.
+func (e *Engine) RepaintLEDs(ctx context.Context) error {
+	reply := make(chan struct{}, 1)
+	select {
+	case e.repaintCh <- reply:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-reply:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -209,6 +258,17 @@ func (e *Engine) Run(ctx context.Context) error {
 	timer := e.clk.NewTimer(time.Hour)
 	timer.Stop()
 
+	// leds paints once the config/bindings above are in place, even
+	// before the startup resync completes -- everything currently
+	// unresolved (no streams enumerated yet) renders as blank, which is
+	// what an encoder with an as-yet-unresolved target should show
+	// anyway; the resync's own streamsCh arm below repaints once real
+	// state arrives.
+	leds := newLEDState()
+	ledTimer := e.clk.NewTimer(time.Hour)
+	ledTimer.Stop()
+	e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+
 	var lastDecodeLog time.Time
 	var decodeLogSuppressed int
 
@@ -221,6 +281,16 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 			timer.Reset(d)
 			timerC = timer.C()
+		}
+
+		var ledTimerC <-chan time.Time
+		if leds.dirty {
+			d := ledFlushInterval - e.clk.Now().Sub(leds.lastPush)
+			if d < 0 {
+				d = 0
+			}
+			ledTimer.Reset(d)
+			ledTimerC = ledTimer.C()
 		}
 
 		select {
@@ -251,6 +321,9 @@ func (e *Engine) Run(ctx context.Context) error {
 				e.dispatchGesture(ctx, bindings, res, layer, g, dispatchCh)
 			}
 
+		case <-ledTimerC:
+			e.flushLEDs(ctx, cfg, bindings, res, layer, leds)
+
 		case ev, open := <-events:
 			if !open {
 				if ctx.Err() != nil {
@@ -259,17 +332,27 @@ func (e *Engine) Run(ctx context.Context) error {
 				return errAudioSubscriptionClosed
 			}
 			e.handleAudioEvent(ev, res, dispatchCh)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
 
 		case sr := <-streamsCh:
 			res.setSinks(sr.sinks)
 			res.setSources(sr.sources)
 			res.setStreams(sr.streams)
+			if refs := deviceRefsBoundToTargets(bindings, res, layer); len(refs) > 0 {
+				e.enqueueDispatch(dispatchCh, work{refreshRefs: refs}, "device level refresh")
+			}
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
 
 		case req := <-e.configCh:
 			cfg = req.cfg
 			bindings = newBindingIndex(cfg, e.log)
 			gestures.deferPress = bindings.deferPress
 			res.setConfig(cfg)
+			// The set of bound controls may have changed; forget every
+			// last-pushed LED value rather than diffing against a
+			// binding index that no longer applies.
+			leds.reset()
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
 			select {
 			case req.reply <- nil:
 			default:
@@ -277,6 +360,17 @@ func (e *Engine) Run(ctx context.Context) error {
 
 		case reply := <-e.snapshotCh:
 			reply <- e.buildSnapshot(cfg, bindings, res, layer)
+
+		case <-e.ledCh:
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+
+		case reply := <-e.repaintCh:
+			leds.reset()
+			e.flushLEDs(ctx, cfg, bindings, res, layer, leds)
+			select {
+			case reply <- struct{}{}:
+			default:
+			}
 		}
 	}
 }

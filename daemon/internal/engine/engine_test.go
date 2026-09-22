@@ -41,14 +41,26 @@ func mustInject(t *testing.T, ctx context.Context, port *midi.FakePort, msg midi
 // against fakes for everything hardware/PipeWire-facing, so Run is
 // exercised end to end exactly as cmd/knobd wires it, just with
 // midi.FakePort and audio.FakeBackend standing in for the real backends.
+// OnApplied is wired to the engine's own NotifyLEDDirty, matching
+// cmd/knobd/main.go's wiring (see led_test.go), via the same
+// declare-before-construct pattern main.go uses: the closure captures e
+// itself, not e's value at closure-creation time, and OnApplied is never
+// actually called until well after e is assigned.
 func newTestEngine(cfg model.Config, clk *testClock) (*Engine, *midi.FakePort, *audio.FakeBackend) {
 	port := midi.NewFakePort(16)
 	backend := audio.NewFakeBackend()
 	registry := actions.NewRegistry()
-	vh := actions.NewVolumeHandlers(backend, actions.VolumeOptions{})
+	var e *Engine
+	vh := actions.NewVolumeHandlers(backend, actions.VolumeOptions{
+		OnApplied: func(audio.Ref, audio.VolumeState) {
+			if e != nil {
+				e.NotifyLEDDirty()
+			}
+		},
+	})
 	vh.Register(registry)
 
-	e := New(Deps{
+	e = New(Deps{
 		Port:     port,
 		Codec:    device.NewXTouchMiniCodec(),
 		Audio:    backend,
@@ -214,6 +226,7 @@ func TestEngineRunPressVsHold(t *testing.T) {
 	t0 := clk.Now()
 
 	// --- short press: released at 599ms, below HoldThreshold ---
+	clk.drainResets()                                                                     // see drainResets' doc comment: M05's LED timer also resets on this clock
 	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 127, Time: t0}) // encoder-push 1 down
 	if !clk.waitForReset(2 * time.Second) {
 		t.Fatal("timed out waiting for the loop to arm its hold timer after the first down")
@@ -227,6 +240,7 @@ func TestEngineRunPressVsHold(t *testing.T) {
 
 	// --- held past the threshold: HoldThreshold fires while still down ---
 	downAt := t0.Add(2 * time.Second)
+	clk.drainResets()
 	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 127, Time: downAt})
 	if !clk.waitForReset(2 * time.Second) {
 		t.Fatal("timed out waiting for the loop to arm its hold timer after the second down")

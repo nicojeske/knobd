@@ -281,3 +281,91 @@ func TestVolumeAdjustPropagatesBackendError(t *testing.T) {
 		t.Fatal("expected an error for an unknown ref")
 	}
 }
+
+// TestVolumeOnAppliedFiresForVolumeWrites pins OnApplied's original M04
+// contract (a write via volume.set) still holds now that M05 depends on
+// it for LED feedback.
+func TestVolumeOnAppliedFiresForVolumeWrites(t *testing.T) {
+	ref := audio.Ref{Kind: audio.RefStream, ID: "1"}
+	fb := seedBackend(t, map[audio.Ref]audio.VolumeState{ref: {Percent: 50}})
+
+	var calls []audio.VolumeState
+	v := NewVolumeHandlers(fb, VolumeOptions{
+		OnApplied: func(_ audio.Ref, st audio.VolumeState) { calls = append(calls, st) },
+	})
+	err := v.executeSet(context.Background(), Invocation{
+		Action: model.VolumeSetAction{Percent: 75}, Refs: []audio.Ref{ref},
+	})
+	if err != nil {
+		t.Fatalf("executeSet: %v", err)
+	}
+	if len(calls) != 1 || calls[0].Percent != 75 || calls[0].Muted {
+		t.Fatalf("OnApplied calls = %+v, want exactly one call with Percent=75, Muted=false", calls)
+	}
+}
+
+// TestVolumeOnAppliedFiresForMuteToggle is M05's fix: a button LED
+// showing mute state needs to hear about a mute change the instant it
+// happens, not wait for audio.Backend.Subscribe's echo.
+func TestVolumeOnAppliedFiresForMuteToggle(t *testing.T) {
+	ref := audio.Ref{Kind: audio.RefStream, ID: "1"}
+	fb := seedBackend(t, map[audio.Ref]audio.VolumeState{ref: {Percent: 50}})
+
+	var calls []audio.VolumeState
+	v := NewVolumeHandlers(fb, VolumeOptions{
+		OnApplied: func(_ audio.Ref, st audio.VolumeState) { calls = append(calls, st) },
+	})
+	err := v.executeMuteToggle(context.Background(), Invocation{
+		Action: model.VolumeMuteToggleAction{}, Refs: []audio.Ref{ref},
+	})
+	if err != nil {
+		t.Fatalf("executeMuteToggle: %v", err)
+	}
+	if len(calls) != 1 || !calls[0].Muted {
+		t.Fatalf("OnApplied calls = %+v, want exactly one call with Muted=true", calls)
+	}
+
+	calls = nil
+	if err := v.executeMuteToggle(context.Background(), Invocation{
+		Action: model.VolumeMuteToggleAction{}, Refs: []audio.Ref{ref},
+	}); err != nil {
+		t.Fatalf("executeMuteToggle (unmute): %v", err)
+	}
+	if len(calls) != 1 || calls[0].Muted {
+		t.Fatalf("OnApplied calls = %+v, want exactly one call with Muted=false", calls)
+	}
+}
+
+// TestVolumeOnAppliedFiresForImplicitUnmute is the ensureUnmuted half of
+// the same fix: adjusting a muted target's volume also un-mutes it, and
+// that state change must reach OnApplied too, even independent of the
+// volume write's own OnApplied call.
+func TestVolumeOnAppliedFiresForImplicitUnmute(t *testing.T) {
+	ref := audio.Ref{Kind: audio.RefStream, ID: "1"}
+	fb := seedBackend(t, map[audio.Ref]audio.VolumeState{ref: {Percent: 40, Muted: true}})
+
+	var calls []audio.VolumeState
+	v := NewVolumeHandlers(fb, VolumeOptions{
+		OnApplied: func(_ audio.Ref, st audio.VolumeState) { calls = append(calls, st) },
+	})
+	err := v.executeAdjust(context.Background(), Invocation{
+		Action: model.VolumeAdjustAction{StepPercent: 2}, Delta: 1, Refs: []audio.Ref{ref},
+	})
+	if err != nil {
+		t.Fatalf("executeAdjust: %v", err)
+	}
+	// ensureUnmuted's own OnApplied (Muted=false at the old percent),
+	// then writeVolume's (Muted=false at the new percent) -- both fire,
+	// which is harmless: NotifyLEDDirty's real-world consumer coalesces.
+	if len(calls) != 2 {
+		t.Fatalf("OnApplied calls = %+v, want exactly 2 (ensureUnmuted + writeVolume)", calls)
+	}
+	for _, c := range calls {
+		if c.Muted {
+			t.Errorf("OnApplied call %+v reported Muted=true after an implicit un-mute", c)
+		}
+	}
+	if calls[1].Percent != 42 { // 40 + 2*1
+		t.Errorf("writeVolume's OnApplied Percent = %v, want 42", calls[1].Percent)
+	}
+}

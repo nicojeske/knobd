@@ -78,6 +78,25 @@ func (c *testClock) waitForReset(timeout time.Duration) bool {
 	}
 }
 
+// drainResets discards any Reset signal already sitting in the buffer.
+// M05 added a second Timer (Engine's LED flush timer) sharing this
+// clock, so resets is no longer exclusively the gesture timer's --
+// e.g. an audio resync alone now arms the LED timer with nothing for
+// the gesture machine to do. A caller about to waitForReset for a
+// specific action (e.g. a down event that should arm the hold timer)
+// calls this immediately before triggering that action, so a stale
+// signal from something unrelated that already happened can't satisfy
+// the wait prematurely.
+func (c *testClock) drainResets() {
+	for {
+		select {
+		case <-c.resets:
+		default:
+			return
+		}
+	}
+}
+
 type testTimer struct {
 	clock    *testClock
 	ch       chan time.Time

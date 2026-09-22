@@ -16,11 +16,21 @@ import (
 // indefinitely.
 const dispatchQueueDepth = 64
 
-// work is one item on the dispatch queue: either an Invocation to
-// execute, or a request to re-enumerate the audio graph.
+// work is one item on the dispatch queue: an Invocation to execute, a
+// request to re-enumerate the audio graph, or a request to refresh the
+// level cache for specific sink/source refs (see refreshRefs and
+// Engine.refreshRefLevels).
 type work struct {
 	inv    *actions.Invocation
 	resync bool
+	// refreshRefs, when non-empty, asks the dispatcher to GetVolume each
+	// ref and feed the result through Observer.ObserveState -- M05's fix
+	// for a device (sink/source) target's LED ring going stale after an
+	// external change: handleAudioEvent only feeds ObserveState for
+	// stream refs, since an EventDeviceChanged carries no Ref to do the
+	// same for a sink/source (see that method's comment). engine.go's
+	// streamsCh arm computes this list once sinks/sources are fresh.
+	refreshRefs []audio.Ref
 }
 
 // streamsResult is the dispatcher's answer to a resync request, fed back
@@ -146,14 +156,41 @@ func refsEqual(a, b []audio.Ref) bool {
 }
 
 func (e *Engine) executeWork(ctx context.Context, w work, out chan<- streamsResult) {
-	if w.resync {
+	switch {
+	case w.resync:
 		e.executeResync(ctx, out)
+	case len(w.refreshRefs) > 0:
+		e.refreshRefLevels(ctx, w.refreshRefs)
+	default:
+		if err := e.deps.Registry.Execute(ctx, *w.inv); err != nil {
+			e.log.Error("engine: action execution failed",
+				"control", w.inv.Control, "gesture", w.inv.Gesture,
+				"actionType", w.inv.Action.ActionType(), "err", err)
+		}
+	}
+}
+
+// refreshRefLevels fetches refs' current volume/mute state and folds it
+// into the level cache via Observer.ObserveState, then wakes the run
+// loop (NotifyLEDDirty) to repaint with what it just learned -- see
+// work.refreshRefs's doc comment for why this exists. Runs on the
+// dispatcher goroutine, like every other audio.Backend call.
+func (e *Engine) refreshRefLevels(ctx context.Context, refs []audio.Ref) {
+	if e.deps.Observer == nil {
 		return
 	}
-	if err := e.deps.Registry.Execute(ctx, *w.inv); err != nil {
-		e.log.Error("engine: action execution failed",
-			"control", w.inv.Control, "gesture", w.inv.Gesture,
-			"actionType", w.inv.Action.ActionType(), "err", err)
+	changed := false
+	for _, ref := range refs {
+		st, err := e.deps.Audio.GetVolume(ctx, ref)
+		if err != nil {
+			e.log.Debug("engine: refresh device level failed", "ref", ref, "err", err)
+			continue
+		}
+		e.deps.Observer.ObserveState(ref, st)
+		changed = true
+	}
+	if changed {
+		e.NotifyLEDDirty()
 	}
 }
 
