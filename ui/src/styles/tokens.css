@@ -4,6 +4,8 @@
  * prefers-color-scheme (KDE Plasma users skew dark, and this is a
  * webview with no separate "app theme" setting of its own). */
 :root {
+  color-scheme: light;
+
   --color-bg: #f4f5f7;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
@@ -40,6 +42,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
+
     --color-bg: #181a20;
     --color-surface: #21242c;
     --color-surface-raised: #262a33;
