@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { BindingEditor } from "../binding/BindingEditor";
 import { LAYOUT } from "../../device/geometry";
 import type { ControlKind } from "../../device/layout";
 import { useConnection } from "../../state/ConnectionContext";
@@ -11,15 +14,14 @@ import { Pad } from "./Pad";
  * the live GET /state snapshot (see components/panel/controlState.ts).
  * encoder_push entries are skipped here -- Encoder renders both the
  * turn ring and the push target for one physical knob, since they share
- * a screen position (see device/geometry.ts). */
+ * a screen position (see device/geometry.ts and BindingEditor's own
+ * gestureOptions, which spans both kinds for one dialog). */
 export function Panel() {
   const { state } = useConnection();
+  const [selected, setSelected] = useState<{ kind: ControlKind; index: number } | undefined>(undefined);
 
   function handleSelect(kind: ControlKind, index: number) {
-    // The binding editor lands in a later commit of this milestone;
-    // this is a placeholder hook point until it exists.
-
-    console.info(`panel: selected ${kind} ${index}`);
+    setSelected({ kind, index });
   }
 
   return (
@@ -55,6 +57,15 @@ export function Panel() {
           );
         })}
       </svg>
+      {selected ? (
+        <BindingEditor
+          kind={selected.kind}
+          index={selected.index}
+          onClose={() => {
+            setSelected(undefined);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

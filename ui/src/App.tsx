@@ -6,6 +6,7 @@ import { Panel } from "./components/panel/Panel";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { PlaceholderView } from "./components/views/PlaceholderView";
 import { cx } from "./lib/cx";
+import { CapabilitiesProvider } from "./state/CapabilitiesContext";
 import { ConfigProvider } from "./state/ConfigContext";
 import { ConnectionProvider } from "./state/ConnectionContext";
 
@@ -43,26 +44,28 @@ export function App() {
   return (
     <ConnectionProvider>
       <ConfigProvider>
-        <div className={styles.app}>
-          <StatusBar />
-          <nav className={styles.tabs}>
-            {VIEWS.map((v) => (
-              <button
-                key={v}
-                type="button"
-                className={cx(styles.tab, v === view && styles.tabActive)}
-                onClick={() => {
-                  setView(v);
-                }}
-              >
-                {VIEW_LABELS[v]}
-              </button>
-            ))}
-          </nav>
-          <div className={styles.content}>
-            <ViewContent view={view} />
+        <CapabilitiesProvider>
+          <div className={styles.app}>
+            <StatusBar />
+            <nav className={styles.tabs}>
+              {VIEWS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={cx(styles.tab, v === view && styles.tabActive)}
+                  onClick={() => {
+                    setView(v);
+                  }}
+                >
+                  {VIEW_LABELS[v]}
+                </button>
+              ))}
+            </nav>
+            <div className={styles.content}>
+              <ViewContent view={view} />
+            </div>
           </div>
-        </div>
+        </CapabilitiesProvider>
       </ConfigProvider>
     </ConnectionProvider>
   );
