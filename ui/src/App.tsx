@@ -5,8 +5,8 @@ import { AppsView } from "./components/apps/AppsView";
 import { Banner } from "./components/common/Banner";
 import { StatusBar } from "./components/common/StatusBar";
 import { Panel } from "./components/panel/Panel";
+import { ProfilesView } from "./components/profiles/ProfilesView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
-import { PlaceholderView } from "./components/views/PlaceholderView";
 import { cx } from "./lib/cx";
 import { CapabilitiesProvider } from "./state/CapabilitiesContext";
 import { ConfigProvider, useConfig } from "./state/ConfigContext";
@@ -50,7 +50,7 @@ function ViewContent({ view }: { view: View }) {
     case "apps":
       return <AppsView />;
     case "profiles":
-      return <PlaceholderView title="Profiles" note="Profile management lands in a later commit of this milestone." />;
+      return <ProfilesView />;
     case "diagnostics":
       return <DiagnosticsView />;
   }
