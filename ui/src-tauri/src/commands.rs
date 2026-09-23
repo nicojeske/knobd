@@ -11,8 +11,11 @@ use crate::socket;
 
 /// DaemonStatus is the one Rust-side-typed response in this file: it
 /// describes the bridge's own connectivity, not anything the daemon
-/// itself returns, so there is no Go/OpenAPI shape to mirror.
+/// itself returns, so there is no Go/OpenAPI shape to mirror. camelCase
+/// to match every JSON shape elsewhere in this project (the daemon's
+/// own JSON tags, and every generated TypeScript type).
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DaemonStatus {
     pub socket_path: String,
     pub reachable: bool,

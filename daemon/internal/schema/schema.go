@@ -97,6 +97,8 @@ func mapper(t reflect.Type) *jsonschema.Schema {
 		return enumSchema(model.ActionTypes())
 	case reflect.TypeOf(api.ErrorCode("")):
 		return enumSchema(api.ErrorCodes())
+	case reflect.TypeOf(api.EventType("")):
+		return enumSchema(api.EventTypes())
 	case reflect.TypeOf(actionDoc{}):
 		return &jsonschema.Schema{Ref: "#/$defs/Action"}
 	default:

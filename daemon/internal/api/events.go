@@ -32,6 +32,13 @@ const (
 	EventError EventType = "error"
 )
 
+// EventTypes returns every valid EventType, for daemon/internal/schema's
+// OpenAPI enum generation -- mirrors model.ControlKinds() and
+// ErrorCodes() in this package.
+func EventTypes() []EventType {
+	return []EventType{EventHello, EventState, EventConfigChanged, EventLearnInput, EventError}
+}
+
 // Event is one frame on GET /events, framed as Server-Sent Events
 // ("event: <type>\ndata: <compact json>\n\n" -- see
 // specs/adr/0004-ipc-over-unix-socket.md's Update (M07)). Payload

@@ -28,8 +28,14 @@ its nested types come from `config.schema.json` →
 `State`, `AudioGraph`, `Capabilities`, `ErrorResponse`, the learn/event
 payloads — comes from `openapi.json` → `ui/src/types/api.ts` only.
 `ui/src/api/client.ts` imports `Config` from the former and everything
-else from the latter; `openapi.json` `$ref`s the config schema for
-`PUT /config`'s body rather than inlining a second copy of `Config`.
+else from the latter. `openapi.json`'s own `Config` component (needed so
+`PUT /config`'s request body is documented at all) is a second,
+independently-generated copy of the same shape rather than an external
+`$ref` into `config.schema.json` — OpenAPI tooling's support for
+cross-file `$ref`s is inconsistent enough that inlining was the more
+reliable choice — so `ui/src/types/api.ts`'s `components["schemas"]["Config"]`
+exists but is never imported by name anywhere; `ui/src/types/config.ts`'s
+`Config` is the only one actually used in code.
 
 `ui/src/types/config.ts`, `ui/src/types/api.ts`, and
 `ui/src/types/device-layout.ts` are generated from the three files

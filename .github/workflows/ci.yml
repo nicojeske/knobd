@@ -43,8 +43,8 @@ jobs:
       - name: generated types up to date
         run: |
           cd ui && npm run codegen
-          cd .. && git diff --exit-code -- ui/src/types/config.ts
+          cd .. && git diff --exit-code -- ui/src/types/
       - name: typecheck
         run: cd ui && npm run typecheck
-      - name: build (Vite only — Tauri/Rust build is out of scope until M07)
+      - name: build (Vite only — the Rust/Tauri build gets its own CI job)
         run: cd ui && npx vite build

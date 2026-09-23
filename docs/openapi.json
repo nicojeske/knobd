@@ -1127,7 +1127,14 @@
       "Event": {
         "properties": {
           "type": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "hello",
+              "state",
+              "config_changed",
+              "learn_input",
+              "error"
+            ]
           },
           "seq": {
             "type": "integer"
