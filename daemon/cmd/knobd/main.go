@@ -91,7 +91,12 @@ func runDaemon(args []string) error {
 		path = p
 	}
 
-	cfg, err := config.Load(path)
+	// LoadAndUpgrade, not Load: a config found at an old schema version
+	// on startup should be migrated and written back to disk so the
+	// upgrade happens once, not on every start (see M12's Design
+	// section). The SIGHUP reload path below stays on Load, since a
+	// hand-edited file shouldn't be silently rewritten by a reload.
+	cfg, err := config.LoadAndUpgrade(path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

@@ -106,6 +106,141 @@ func TestLoadRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+// fixturesDir is testdata/config relative to this package -- see its
+// README for what each file contains.
+const fixturesDir = "../../../testdata/config"
+
+// copyFixture copies a testdata fixture into a fresh t.TempDir() as
+// config.json, so a test can freely load/migrate/overwrite it without
+// ever touching the checked-in original.
+func copyFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(fixturesDir, name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write fixture copy: %v", err)
+	}
+	return path
+}
+
+func TestLoadFixturesValidate(t *testing.T) {
+	for _, name := range []string{"v1.json", "v0-unversioned.json"} {
+		t.Run(name, func(t *testing.T) {
+			path := copyFixture(t, name)
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load(%s): %v", name, err)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Load(%s) result failed Validate: %v", name, err)
+			}
+			if cfg.SchemaVersion != currentSchemaVersion {
+				t.Errorf("Load(%s).SchemaVersion = %d, want %d", name, cfg.SchemaVersion, currentSchemaVersion)
+			}
+		})
+	}
+}
+
+// TestLoadAndUpgradeRewritesFileAndBacksUpOriginal exercises the actual
+// upgrade-on-startup path M12 adds: raise currentSchemaVersion past the
+// fixtures' version 1, like TestMigrateAppliesRegisteredSteps does, and
+// confirm LoadAndUpgrade (a) writes the migrated document back to path,
+// (b) leaves a byte-for-byte backup of the pre-migration file at
+// "<path>.v1.bak", and (c) is idempotent -- a second call neither
+// changes config.json further nor touches the existing backup.
+func TestLoadAndUpgradeRewritesFileAndBacksUpOriginal(t *testing.T) {
+	restoreVersion, restoreMigrations := currentSchemaVersion, migrations
+	t.Cleanup(func() { currentSchemaVersion, migrations = restoreVersion, restoreMigrations })
+
+	currentSchemaVersion = 2
+	migrations = []func(map[string]any) (map[string]any, error){
+		func(doc map[string]any) (map[string]any, error) {
+			doc["migratedFrom1To2"] = true
+			return doc, nil
+		},
+	}
+
+	for _, name := range []string{"v1.json", "v0-unversioned.json"} {
+		t.Run(name, func(t *testing.T) {
+			path := copyFixture(t, name)
+			original, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read copied fixture: %v", err)
+			}
+
+			cfg, err := LoadAndUpgrade(path)
+			if err != nil {
+				t.Fatalf("LoadAndUpgrade: %v", err)
+			}
+			if cfg.SchemaVersion != 2 {
+				t.Errorf("SchemaVersion = %d, want 2", cfg.SchemaVersion)
+			}
+
+			onDisk, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s after upgrade: %v", path, err)
+			}
+			reloaded, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load rewritten %s: %v", path, err)
+			}
+			if reloaded.SchemaVersion != 2 {
+				t.Errorf("config.json on disk is at schemaVersion %d, want 2 (rewrite didn't happen)", reloaded.SchemaVersion)
+			}
+
+			backupPath := path + ".v1.bak"
+			backup, err := os.ReadFile(backupPath)
+			if err != nil {
+				t.Fatalf("read backup %s: %v", backupPath, err)
+			}
+			if !reflect.DeepEqual(backup, original) {
+				t.Errorf("backup %s does not match the pre-migration file byte-for-byte", backupPath)
+			}
+
+			// Second call: config.json is now already at the current
+			// version, so nothing further should change and the
+			// backup should be left exactly as it was.
+			if _, err := LoadAndUpgrade(path); err != nil {
+				t.Fatalf("second LoadAndUpgrade: %v", err)
+			}
+			onDiskAgain, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s after second upgrade: %v", path, err)
+			}
+			if !reflect.DeepEqual(onDiskAgain, onDisk) {
+				t.Error("second LoadAndUpgrade changed an already-current config.json")
+			}
+			backupAgain, err := os.ReadFile(backupPath)
+			if err != nil {
+				t.Fatalf("read backup after second upgrade: %v", err)
+			}
+			if !reflect.DeepEqual(backupAgain, backup) {
+				t.Error("second LoadAndUpgrade modified the existing backup")
+			}
+		})
+	}
+}
+
+func TestLoadAndUpgradeMissingFileWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg, err := LoadAndUpgrade(path)
+	if err != nil {
+		t.Fatalf("LoadAndUpgrade: %v", err)
+	}
+	if !reflect.DeepEqual(cfg, model.Default()) {
+		t.Errorf("LoadAndUpgrade(missing) = %#v, want model.Default()", cfg)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("LoadAndUpgrade should not create a file when none existed")
+	}
+}
+
 func TestPathHonorsXDGConfigHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

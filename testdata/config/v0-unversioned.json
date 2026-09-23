@@ -1,0 +1,295 @@
+{
+  "activeProfileId": "default",
+  "appGroups": [
+    {
+      "displayName": "Chat apps",
+      "id": "chat",
+      "matcherIds": [
+        "vesktop"
+      ]
+    }
+  ],
+  "appMatchers": [
+    {
+      "binaries": [
+        "vesktop"
+      ],
+      "displayName": "Vesktop",
+      "id": "vesktop"
+    },
+    {
+      "binaries": [
+        "firefox",
+        "firefox-bin"
+      ],
+      "displayName": "Firefox",
+      "id": "firefox"
+    },
+    {
+      "binaries": [
+        "spotify"
+      ],
+      "displayName": "Spotify",
+      "id": "spotify"
+    }
+  ],
+  "profiles": [
+    {
+      "bindings": [
+        {
+          "action": {
+            "params": {
+              "stepPercent": 2,
+              "target": {
+                "kind": "default_sink"
+              }
+            },
+            "type": "volume.adjust"
+          },
+          "control": {
+            "index": 1,
+            "kind": "encoder"
+          },
+          "gesture": "turn",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "target": {
+                "kind": "default_sink"
+              }
+            },
+            "type": "volume.mute_toggle"
+          },
+          "control": {
+            "index": 1,
+            "kind": "button"
+          },
+          "gesture": "press",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "stepPercent": 2,
+              "target": {
+                "kind": "default_source"
+              }
+            },
+            "type": "volume.adjust"
+          },
+          "control": {
+            "index": 2,
+            "kind": "encoder"
+          },
+          "gesture": "turn",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "target": {
+                "kind": "default_source"
+              }
+            },
+            "type": "volume.mute_toggle"
+          },
+          "control": {
+            "index": 2,
+            "kind": "button"
+          },
+          "gesture": "press",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "target": {
+                "kind": "default_sink"
+              }
+            },
+            "type": "volume.follow"
+          },
+          "control": {
+            "index": 1,
+            "kind": "fader"
+          },
+          "gesture": "move",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {},
+            "type": "knob.assign_focused_app"
+          },
+          "control": {
+            "index": 3,
+            "kind": "encoder_push"
+          },
+          "gesture": "hold",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {},
+            "type": "knob.assign_focused_app"
+          },
+          "control": {
+            "index": 4,
+            "kind": "encoder_push"
+          },
+          "gesture": "hold",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {},
+            "type": "knob.assign_focused_app"
+          },
+          "control": {
+            "index": 5,
+            "kind": "encoder_push"
+          },
+          "gesture": "hold",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {},
+            "type": "knob.assign_focused_app"
+          },
+          "control": {
+            "index": 6,
+            "kind": "encoder_push"
+          },
+          "gesture": "hold",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {},
+            "type": "knob.assign_focused_app"
+          },
+          "control": {
+            "index": 7,
+            "kind": "encoder_push"
+          },
+          "gesture": "hold",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {},
+            "type": "knob.assign_focused_app"
+          },
+          "control": {
+            "index": 8,
+            "kind": "encoder_push"
+          },
+          "gesture": "hold",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "stepPercent": 2,
+              "target": {
+                "kind": "app",
+                "ref": "firefox"
+              }
+            },
+            "type": "volume.adjust"
+          },
+          "control": {
+            "index": 4,
+            "kind": "encoder"
+          },
+          "gesture": "turn",
+          "layer": 0
+        }
+      ],
+      "displayName": "Default",
+      "id": "default"
+    },
+    {
+      "bindings": [
+        {
+          "action": {
+            "params": {
+              "stepPercent": 5,
+              "target": {
+                "kind": "app",
+                "ref": "spotify"
+              }
+            },
+            "type": "volume.adjust"
+          },
+          "control": {
+            "index": 3,
+            "kind": "encoder"
+          },
+          "gesture": "turn",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "target": {
+                "kind": "group",
+                "ref": "chat"
+              }
+            },
+            "type": "volume.mute_toggle"
+          },
+          "control": {
+            "index": 3,
+            "kind": "button"
+          },
+          "gesture": "press",
+          "layer": 0
+        },
+        {
+          "action": {
+            "params": {
+              "sceneId": "meeting"
+            },
+            "type": "scene.apply"
+          },
+          "control": {
+            "index": 4,
+            "kind": "button"
+          },
+          "gesture": "press",
+          "layer": 0
+        }
+      ],
+      "displayName": "Streaming",
+      "id": "streaming"
+    }
+  ],
+  "scenes": [
+    {
+      "displayName": "Meeting",
+      "entries": [
+        {
+          "muted": false,
+          "target": {
+            "kind": "app",
+            "ref": "spotify"
+          },
+          "volumePercent": 10
+        },
+        {
+          "muted": false,
+          "target": {
+            "kind": "group",
+            "ref": "chat"
+          },
+          "volumePercent": 100
+        }
+      ],
+      "id": "meeting"
+    }
+  ]
+}
