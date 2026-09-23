@@ -12,5 +12,4 @@ Everything here except `source/*.svg` is generated; regenerate with
 - `source/tray.svg` — a flat, single-color simplification of the same
   shape, sized for a 22-32px panel icon rather than a home-screen tile.
   `tauri icon` doesn't produce a tray asset, so `tray.png` is rendered
-  from this file directly: `rsvg-convert -w 32 -h 32
-  src-tauri/icons/source/tray.svg -o src-tauri/icons/tray.png`.
+  from this file directly: `rsvg-convert -w 32 -h 32 src-tauri/icons/source/tray.svg -o src-tauri/icons/tray.png`.

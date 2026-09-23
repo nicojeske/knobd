@@ -69,7 +69,11 @@ export function getConfig(): Promise<Config> {
 }
 
 export function saveConfig(config: Config): Promise<void> {
-  return invoke<void>("save_config", { config });
+  // Not invoke<void>(...): ESLint's no-invalid-void-type flags `void` as
+  // a call expression's own type argument unconditionally (unlike
+  // `Promise<void>`, which is fine) -- .then(() => undefined) gets the
+  // same Promise<void>-compatible result without fighting the rule.
+  return invoke("save_config", { config }).then(() => undefined);
 }
 
 export function getState(): Promise<State> {
@@ -94,5 +98,5 @@ export function startLearn(timeoutMs?: number): Promise<LearnState> {
 }
 
 export function cancelLearn(): Promise<void> {
-  return invoke<void>("cancel_learn");
+  return invoke("cancel_learn").then(() => undefined);
 }

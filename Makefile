@@ -1,4 +1,4 @@
-.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons
+.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons ui-codegen ui-test ui-lint ui-build
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
@@ -76,6 +76,22 @@ ui-icons: ## Regenerate ui/src-tauri/icons/ from icons/source/*.svg
 	cd ui && npx tauri icon src-tauri/icons/source/knobd.svg
 	rm -rf ui/src-tauri/icons/android ui/src-tauri/icons/ios ui/src-tauri/icons/Square*.png ui/src-tauri/icons/StoreLogo.png ui/src-tauri/icons/64x64.png
 	rsvg-convert -w 32 -h 32 ui/src-tauri/icons/source/tray.svg -o ui/src-tauri/icons/tray.png
+
+ui-codegen: ## Regenerate ui/src/types/{config,api}.ts
+	cd ui && npm run codegen
+
+ui-test: ## Run the UI's vitest suite plus the Rust bridge's cargo test
+	cd ui && npm test
+	cd ui/src-tauri && cargo test
+
+ui-lint: ## eslint + prettier --check (TS) and fmt/clippy (Rust)
+	cd ui && npm run lint
+	cd ui && npm run format:check
+	cd ui/src-tauri && cargo fmt --check
+	cd ui/src-tauri && cargo clippy --all-targets -- -D warnings
+
+ui-build: ## Production Tauri build (produces a .deb; see M12 for the rest of packaging)
+	cd ui && npm run tauri build
 
 clean:
 	rm -f $(BIN)

@@ -1,0 +1,10 @@
+# Generated -- json2ts/openapi-typescript already format these, and
+# re-formatting on every prettier run would fight the codegen drift
+# check in CI.
+src/types/config.ts
+src/types/api.ts
+src/types/device-layout.ts
+
+dist/
+src-tauri/target/
+src-tauri/gen/

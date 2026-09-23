@@ -35,6 +35,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: reload's first synchronous statement (setLoading(true))
+    // re-affirms the initial `useState(true)` value, which React bails out
+    // of re-rendering for (same value, Object.is-equal) -- the "cascading
+    // render" this rule guards against doesn't apply to a single leaf
+    // effect whose synchronous setState is a no-op the first time it runs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
   }, [reload]);
 

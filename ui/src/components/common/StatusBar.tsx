@@ -1,9 +1,10 @@
+import { cx } from "../../lib/cx";
 import { useConnection } from "../../state/ConnectionContext";
 import styles from "./StatusBar.module.css";
 
 function dotClass(ok: boolean | "warn"): string {
-  if (ok === "warn") return `${styles.dot} ${styles.warn}`;
-  return ok ? `${styles.dot} ${styles.ok}` : `${styles.dot} ${styles.bad}`;
+  if (ok === "warn") return cx(styles.dot, styles.warn);
+  return cx(styles.dot, ok ? styles.ok : styles.bad);
 }
 
 /** StatusBar summarizes device/audio/focus/profile/learn status from

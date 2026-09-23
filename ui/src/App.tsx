@@ -4,6 +4,7 @@ import styles from "./App.module.css";
 import { StatusBar } from "./components/common/StatusBar";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { PlaceholderView } from "./components/views/PlaceholderView";
+import { cx } from "./lib/cx";
 import { ConfigProvider } from "./state/ConfigContext";
 import { ConnectionProvider } from "./state/ConnectionContext";
 
@@ -53,8 +54,10 @@ export function App() {
               <button
                 key={v}
                 type="button"
-                className={v === view ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-                onClick={() => setView(v)}
+                className={cx(styles.tab, v === view && styles.tabActive)}
+                onClick={() => {
+                  setView(v);
+                }}
               >
                 {VIEW_LABELS[v]}
               </button>

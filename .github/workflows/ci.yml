@@ -46,5 +46,42 @@ jobs:
           cd .. && git diff --exit-code -- ui/src/types/
       - name: typecheck
         run: cd ui && npm run typecheck
-      - name: build (Vite only — the Rust/Tauri build gets its own CI job)
+      - name: lint
+        run: cd ui && npm run lint
+      - name: format check
+        run: cd ui && npm run format:check
+      - name: test
+        run: cd ui && npm test
+      - name: build (Vite only — the Rust/Tauri build gets its own job below)
         run: cd ui && npx vite build
+
+  ui-rust:
+    name: ui (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # webkit2gtk/appindicator/rsvg dev headers -- tauri-build compiles
+      # against these even for `cargo test`, so they're needed
+      # regardless of whether this job ever runs `tauri build` (it
+      # deliberately doesn't -- see the comment on the clippy step).
+      - name: install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+      - name: cargo fmt --check
+        run: cd ui/src-tauri && cargo fmt --check
+      - name: cargo clippy
+        run: cd ui/src-tauri && cargo clippy --all-targets -- -D warnings
+      - name: cargo test
+        run: cd ui/src-tauri && cargo test
+      # `tauri build` deliberately isn't run here: bundling is M12's
+      # decision (AppImage needs patchelf, which isn't installed, plus a
+      # network fetch of linuxdeploy), and `cargo build`/`cargo test`
+      # already prove the code compiles and links -- a full bundle step
+      # would add minutes for no additional signal.
