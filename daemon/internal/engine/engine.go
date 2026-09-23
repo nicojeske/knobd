@@ -75,6 +75,13 @@ type Deps struct {
 	Logger   *slog.Logger
 	Clock    Clock
 	Observer StateObserver
+
+	// OnInput, if non-nil, receives every decoded device.Event while
+	// MIDI learn is armed (see SetLearnUntil) -- and only then; it is
+	// never called while learn is disarmed. Called on the run goroutine
+	// and must never block: daemon/internal/api's hub implementation is
+	// a non-blocking send into a single-slot, latest-wins buffer.
+	OnInput func(ev device.Event)
 }
 
 func (d *Deps) setDefaults() {
@@ -114,6 +121,8 @@ type Engine struct {
 	repaintCh chan chan struct{}
 	// flashCh serves FlashControl -- see its doc comment in led.go.
 	flashCh chan flashRequest
+	// learnCh serves SetLearnUntil -- see learn.go.
+	learnCh chan learnRequest
 }
 
 type configRequest struct {
@@ -133,6 +142,7 @@ func New(deps Deps) *Engine {
 		ledCh:      make(chan struct{}, 1),
 		repaintCh:  make(chan chan struct{}),
 		flashCh:    make(chan flashRequest, 1),
+		learnCh:    make(chan learnRequest),
 	}
 }
 
@@ -222,6 +232,10 @@ func (e *Engine) Run(ctx context.Context) error {
 	res := newResolver(proctree.Walker{Root: e.deps.ProcRoot}, e.log)
 	res.setConfig(cfg)
 	layer := 0
+	// learnUntil is the zero time.Time when learn mode is disarmed, or
+	// the deadline it's armed until -- see learn.go's SetLearnUntil and
+	// the msgs/timerC cases below for how it's read and cleared.
+	var learnUntil time.Time
 
 	// Watch is started once, here, and never retried: per
 	// focus.Provider.Watch's doc comment, an implementation is
@@ -307,7 +321,16 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	for {
 		var timerC <-chan time.Time
-		if deadline, ok := gestures.NextDeadline(); ok {
+		// Wake at the earlier of the gesture machine's own next deadline
+		// and learn mode's expiry, so learn disarms itself (and pushes
+		// that state change) even if no further input ever arrives after
+		// it's armed -- see the case below for both checks it performs
+		// once woken.
+		deadline, haveDeadline := gestures.NextDeadline()
+		if !learnUntil.IsZero() && (!haveDeadline || learnUntil.Before(deadline)) {
+			deadline, haveDeadline = learnUntil, true
+		}
+		if haveDeadline {
 			d := deadline.Sub(e.clk.Now())
 			if d < 0 {
 				d = 0
@@ -364,6 +387,41 @@ func (e *Engine) Run(ctx context.Context) error {
 			if !ok {
 				continue
 			}
+
+			if !learnUntil.IsZero() {
+				if ev.Time.After(learnUntil) {
+					// Expired since this event's own timestamp but before
+					// the timerC arm below noticed -- disarm now and let
+					// this event dispatch normally, below.
+					learnUntil = time.Time{}
+					gestures.Reset()
+					e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+				} else {
+					// Learn is armed: every event is suppressed from
+					// dispatch unconditionally. Only a turn, a fader move,
+					// or a button going down counts as a capture -- never
+					// EventButtonUp, so one physical press is exactly one
+					// learn_input, not two (see specs/milestones/M07-config-ui.md).
+					// Anything else here (e.g. a button-up with no
+					// matching captured down, because Reset just cleared
+					// it below on a capture, or because it was already
+					// down when learn armed) is silently swallowed.
+					switch ev.Kind {
+					case device.EventTurn, device.EventFaderMove, device.EventButtonDown:
+						if e.deps.OnInput != nil {
+							e.deps.OnInput(ev)
+						}
+						// One-shot: the first captured input disarms
+						// learn immediately rather than waiting for its
+						// own deadline (the timerC arm above).
+						learnUntil = time.Time{}
+						gestures.Reset()
+						e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+					}
+					continue
+				}
+			}
+
 			for _, g := range gestures.Handle(ev) {
 				e.dispatchGesture(bindings, res, layer, g, dispatchCh)
 			}
@@ -371,6 +429,11 @@ func (e *Engine) Run(ctx context.Context) error {
 		case now := <-timerC:
 			for _, g := range gestures.Tick(now) {
 				e.dispatchGesture(bindings, res, layer, g, dispatchCh)
+			}
+			if !learnUntil.IsZero() && !now.Before(learnUntil) {
+				learnUntil = time.Time{}
+				gestures.Reset()
+				e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
 			}
 
 		case <-ledTimerC:
@@ -433,7 +496,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 
 		case reply := <-e.snapshotCh:
-			reply <- e.buildSnapshot(cfg, bindings, res, layer)
+			reply <- e.buildSnapshot(cfg, bindings, res, layer, learnUntil)
 
 		case <-e.ledCh:
 			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
@@ -452,6 +515,22 @@ func (e *Engine) Run(ctx context.Context) error {
 				until:   e.clk.Now().Add(req.duration),
 			}
 			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+
+		case req := <-e.learnCh:
+			// Reset on every transition, arming or disarming: a control
+			// physically down when learn arms would otherwise have its
+			// matching up swallowed by the suppression above (since it's
+			// not one of the three capture kinds), leaving m.down
+			// populated forever and eventually producing a spurious
+			// GestureHold/GestureRelease pair once learn disarms. The
+			// same reasoning applies in reverse when disarming.
+			learnUntil = req.deadline
+			gestures.Reset()
+			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			select {
+			case req.reply <- nil:
+			default:
+			}
 		}
 	}
 }

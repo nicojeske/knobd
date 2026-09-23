@@ -2,6 +2,7 @@ package engine
 
 import (
 	"sort"
+	"time"
 
 	"github.com/njeske/knobd/internal/audio"
 	"github.com/njeske/knobd/internal/focus"
@@ -23,6 +24,12 @@ type Snapshot struct {
 	// reported yet. cmd/knobd/state.go translates this into
 	// api.FocusState.ResourceClass.
 	Focused focus.AppInfo
+	// LearnUntil is the zero time.Time when MIDI learn is disarmed, or
+	// the deadline it's armed until (see SetLearnUntil). Exposing this
+	// in the snapshot itself means GET /state (and every state push) can
+	// answer "is learn active?" with no separate round trip, and a
+	// reconnecting UI learns learn's status for free.
+	LearnUntil time.Time
 }
 
 // ControlSnapshot is one bound (control, gesture)'s current behavior and
@@ -46,7 +53,7 @@ type ControlSnapshot struct {
 // buildSnapshot runs entirely on the caller's goroutine (the engine's
 // run loop, via the snapshotCh case in Run) using state that goroutine
 // already owns -- no locking, no backend calls.
-func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *resolver, layer int) Snapshot {
+func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *resolver, layer int, learnUntil time.Time) Snapshot {
 	entries := bindings.activeBindings(layer)
 	sort.Slice(entries, func(i, j int) bool {
 		a, b := entries[i], entries[j]
@@ -77,5 +84,5 @@ func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *re
 		controls = append(controls, cs)
 	}
 
-	return Snapshot{ActiveProfileID: cfg.ActiveProfileID, ActiveLayer: layer, Controls: controls, Focused: res.focused}
+	return Snapshot{ActiveProfileID: cfg.ActiveProfileID, ActiveLayer: layer, Controls: controls, Focused: res.focused, LearnUntil: learnUntil}
 }

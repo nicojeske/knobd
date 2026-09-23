@@ -171,7 +171,9 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 		desired[c] = ledOffUpdate(c)
 	}
 
-	snap := e.buildSnapshot(cfg, bindings, res, layer)
+	// LearnUntil is irrelevant here -- ledDesired only reads snap.Controls
+	// -- so pass the zero value rather than threading it through.
+	snap := e.buildSnapshot(cfg, bindings, res, layer, time.Time{})
 	for _, cs := range snap.Controls {
 		switch cs.Control.Kind {
 		case model.ControlEncoder:
