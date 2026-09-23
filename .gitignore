@@ -23,6 +23,13 @@ ui/src-tauri/gen/
 #   docs/openapi.json
 #   docs/device-layout.json
 
+# makepkg output (packaging/arch)
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/knobd/
+packaging/arch/*.pkg.tar.*
+packaging/arch/*.log
+
 # Editors / OS
 .DS_Store
 *.swp

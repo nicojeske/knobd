@@ -1,0 +1,84 @@
+# Maintainer: Nico Jeske <njeske@brockhaus-ag.de>
+#
+# Split package: knobd (the daemon) and knobd-ui (the Tauri config app)
+# build from one checkout so a single `pkgver()`/git revision describes
+# both. See specs/milestones/M12-packaging.md for why they're split
+# rather than one go:embed'd binary -- the UI only ever talks to the
+# daemon through Tauri's own IPC bridge (ui/src-tauri/src/socket.rs),
+# never as a browser page the daemon could serve on its own.
+#
+# There are no release tags yet, so pkgver() falls back to a git
+# revision count + short hash; switch to the tag once one exists.
+
+pkgbase=knobd
+pkgname=(knobd knobd-ui)
+pkgver=r48.30cb591
+pkgrel=1
+pkgdesc="X-Touch Mini audio mixer & macro daemon"
+arch=(x86_64)
+url="https://github.com/njeske/knobd"
+license=(MIT)
+makedepends=(git go nodejs npm rust cargo webkit2gtk-4.1 librsvg)
+options=(!debug !lto)
+source=("knobd::git+file://$(realpath "$startdir/../..")")
+sha256sums=('SKIP')
+
+pkgver() {
+	cd knobd
+	printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+	cd knobd
+
+	# The daemon: static, stripped, no CGo (ADR 0001) -- see
+	# `make check-static` for the concrete check this build relies on.
+	make release
+
+	# The UI: --no-bundle, since this PKGBUILD does its own install
+	# (desktop file + icons) instead of using Tauri's .deb bundler --
+	# see ui/README.md for why `npm run tauri build` alone (.deb) is
+	# the non-Arch path.
+	cd ui
+	npm ci
+	npx tauri build --no-bundle
+}
+
+check() {
+	cd knobd
+	make check-static
+	cd daemon && go test ./...
+	cd ../ui && npm test
+	cd src-tauri && cargo test
+}
+
+package_knobd() {
+	pkgdesc="X-Touch Mini audio mixer & macro daemon"
+	depends=()
+	optdepends=(
+		'pipewire-pulse: audio control (daemon/internal/audio, ADR 0002)'
+		'kwin: per-application focus tracking (daemon/internal/focus, ADR 0003)'
+	)
+	backup=()
+	install=knobd.install
+
+	cd knobd
+	install -Dm755 daemon/knobd "$pkgdir/usr/bin/knobd"
+	install -Dm644 packaging/systemd/knobd.service "$pkgdir/usr/lib/systemd/user/knobd.service"
+	install -Dm644 packaging/udev/99-knobd.rules "$pkgdir/usr/lib/udev/rules.d/99-knobd.rules"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/knobd/LICENSE"
+}
+
+package_knobd-ui() {
+	pkgdesc="Configuration UI for knobd"
+	depends=(knobd webkit2gtk-4.1 gtk3 libayatana-appindicator)
+
+	cd knobd
+	install -Dm755 ui/src-tauri/target/release/knobd-ui "$pkgdir/usr/bin/knobd-ui"
+	install -Dm644 packaging/desktop/knobd-ui.desktop "$pkgdir/usr/share/applications/knobd-ui.desktop"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/knobd-ui/LICENSE"
+
+	install -Dm644 ui/src-tauri/icons/32x32.png "$pkgdir/usr/share/icons/hicolor/32x32/apps/knobd.png"
+	install -Dm644 ui/src-tauri/icons/128x128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/knobd.png"
+	install -Dm644 ui/src-tauri/icons/128x128@2x.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/knobd.png"
+}

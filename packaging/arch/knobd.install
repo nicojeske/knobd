@@ -1,0 +1,51 @@
+# pacman runs these as root and has no user session to talk to, so
+# "enabled without manual steps" (M12's acceptance criterion) means
+# reaching into every currently-logged-in user's session as well as
+# doing the global enable that covers users who log in later. Every
+# systemctl/loginctl call is best-effort (|| true) -- a user whose
+# session manager can't be reached (e.g. a headless CI chroot building
+# the package) must never fail the pacman transaction.
+#
+# Reloading udev rules and doing a *plain* systemd --user daemon-reload
+# are already handled by pacman's own hooks
+# (/usr/share/libalpm/hooks/35-systemd-udev-reload.hook and
+# 30-systemd-daemon-reload-user.hook, both triggered by paths this
+# package installs under usr/lib/udev/rules.d and usr/lib/systemd/user)
+# -- this script only does the parts those generic hooks can't: actually
+# starting/restarting/stopping *this* unit for live sessions.
+
+_for_each_user_session() {
+	# systemctl --user talks to the caller's own session by default;
+	# -M "$user@" is the machinectl-style incantation for reaching a
+	# different user's --user manager from a root script. Users with no
+	# running manager (not logged in graphically) are silently skipped.
+	for user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+		systemctl --user -M "${user}@" "$@" >/dev/null 2>&1 || true
+	done
+}
+
+post_install() {
+	systemctl --global enable knobd.service >/dev/null 2>&1 || true
+	_for_each_user_session daemon-reload
+	_for_each_user_session start knobd.service
+	echo "knobd: add yourself to the 'audio' group if the X-Touch Mini isn't accessible:"
+	echo "    sudo usermod -aG audio \$USER  (then log out and back in)"
+}
+
+post_upgrade() {
+	_for_each_user_session daemon-reload
+	# try-restart, not restart: only touches the unit for users who
+	# already had it running, and this is the point at which
+	# config.LoadAndUpgrade's on-disk migration actually runs (see
+	# daemon/internal/config/config.go).
+	_for_each_user_session try-restart knobd.service
+}
+
+pre_remove() {
+	# Stopping the daemon also unloads the KWin focus-tracking script
+	# (daemon/internal/focus's Close path, ADR 0003) -- nothing else to
+	# clean up on this side, since the script is go:embed'd and never
+	# installed to disk by this package.
+	_for_each_user_session stop knobd.service
+	systemctl --global disable knobd.service >/dev/null 2>&1 || true
+}

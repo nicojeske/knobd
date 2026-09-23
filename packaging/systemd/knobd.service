@@ -10,10 +10,11 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-# TODO(M12): replace with the installed path (e.g.
-# /usr/lib/knobd/knobd or ~/.local/bin/knobd) once packaging exists —
-# %h expands to the invoking user's home directory under systemd --user.
-ExecStart=%h/.local/bin/knobd
+# The PKGBUILD (packaging/arch) installs knobd to /usr/bin and ships
+# this file unmodified. The dev-only `make install-user` path (which
+# installs to $PREFIX, default ~/.local/bin) rewrites this line at
+# install time instead of hardcoding %h here — see the Makefile.
+ExecStart=/usr/bin/knobd
 # SIGHUP reloads config.json from disk (for a hand edit -- PUT /config's
 # live path into the running engine needs no reload at all). See
 # specs/milestones/M04-mapping-engine-daemon.md's Design section for why

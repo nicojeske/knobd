@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=knobd
+Comment=Configuration UI for the knobd X-Touch Mini daemon
+Exec=knobd-ui
+Icon=knobd
+Terminal=false
+Categories=AudioVideo;Audio;Settings;

@@ -69,9 +69,11 @@ calibrate-leds: build ## Build knobd for LED calibration (run e.g. ./daemon/knob
 	@echo "    ./$(BIN) calibrate-leds -cc 48 -value 0     # encoder 1's ring"
 	@echo "    ./$(BIN) calibrate-leds -note 89 -velocity 1  # button 1's LED"
 
-install-user: build ## Install knobd + the systemd user unit into ~/.local (M04; full packaging is M12)
+install-user: build ## Install knobd + the systemd user unit into ~/.local (dev path; packaged installs use packaging/arch)
 	install -Dm755 $(BIN) $(PREFIX)/bin/knobd
-	install -Dm644 packaging/systemd/knobd.service $(UNITDIR)/knobd.service
+	install -dm755 $(UNITDIR)
+	sed 's|^ExecStart=.*|ExecStart=$(PREFIX)/bin/knobd|' packaging/systemd/knobd.service > $(UNITDIR)/knobd.service
+	chmod 644 $(UNITDIR)/knobd.service
 	systemctl --user daemon-reload
 	@echo "installed $(PREFIX)/bin/knobd and $(UNITDIR)/knobd.service"
 	@echo "enable and start it with:"
@@ -106,7 +108,7 @@ ui-lint: ## eslint + prettier --check (TS) and fmt/clippy (Rust)
 	cd ui/src-tauri && cargo fmt --check
 	cd ui/src-tauri && cargo clippy --all-targets -- -D warnings
 
-ui-build: ## Production Tauri build (produces a .deb; see M12 for the rest of packaging)
+ui-build: ## Production Tauri build (produces a .deb; packaging/arch builds --no-bundle instead)
 	cd ui && npm run tauri build
 
 clean:
