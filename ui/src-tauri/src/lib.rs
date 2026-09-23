@@ -5,12 +5,12 @@
 //!
 //! The webview never touches knobd's unix socket directly (see
 //! specs/adr/0004-ipc-over-unix-socket.md): commands.rs's
-//! #[tauri::command]s proxy individual requests, and a later commit
-//! adds an event pump that holds the GET /events connection and
-//! re-emits frames as Tauri events.
+//! #[tauri::command]s proxy individual requests, and events.rs holds
+//! the GET /events connection and re-emits frames as Tauri events.
 
 mod commands;
 mod error;
+mod events;
 mod socket;
 mod tray;
 
@@ -41,6 +41,7 @@ pub fn run() {
         ])
         .setup(|app| {
             tray::build(app)?;
+            events::spawn_pump(app.handle().clone());
             Ok(())
         })
         .on_window_event(tray::window_event)

@@ -1,8 +1,9 @@
+import { listen } from "@tauri-apps/api/event";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { getState, isBridgeError, type State } from "../api/client";
+import { getState, isBridgeError, type DaemonEvent, type State } from "../api/client";
 
-export type ConnectionStatus = "connecting" | "connected" | "unreachable" | "error";
+export type ConnectionStatus = "connecting" | "connected" | "unreachable";
 
 export interface ConnectionInfo {
   status: ConnectionStatus;
@@ -12,25 +13,35 @@ export interface ConnectionInfo {
 
 const ConnectionContext = createContext<ConnectionInfo | undefined>(undefined);
 
-// pollIntervalMs is a stopgap until the live GET /events push channel
-// is wired up on this side (see specs/milestones/M07-config-ui.md's
-// plan): polling GET /state is correct, just coarser than a push. 2s is
-// generous enough to never contend with the daemon's own 30ms LED-flush
-// cadence -- this is a "is the daemon still there, what does it report
-// right now" check, not a source of live control positions.
-const pollIntervalMs = 2000;
+interface ConnectionEventPayload {
+  connected: boolean;
+  error?: string;
+}
 
+const initialInfo: ConnectionInfo = { status: "connecting", state: undefined, error: undefined };
+
+/** ConnectionProvider is seeded by one GET /state call and kept live by
+ * push after that: ui/src-tauri/src/events.rs holds knobd's GET /events
+ * connection and re-emits every frame as a "knobd:event" Tauri event,
+ * plus "knobd:connection" when the connection itself drops or
+ * (re-)establishes.
+ *
+ * The explicit seed call is load-bearing, not a leftover from before the
+ * push channel existed: events.rs starts connecting in Tauri's .setup()
+ * hook, which runs before the webview has loaded React at all, and the
+ * daemon's own GET /events sends exactly one unconditional state
+ * snapshot right on connect (see daemon/internal/api/stream_sse.go) --
+ * on an otherwise-idle daemon, nothing ever triggers a second one. A
+ * frontend that only ever listens would race that one-time snapshot and
+ * could be stuck showing "connecting" forever despite the connection
+ * being perfectly healthy underneath. GET /state has no such race. */
 export function ConnectionProvider({ children }: { children: ReactNode }) {
-  const [info, setInfo] = useState<ConnectionInfo>({
-    status: "connecting",
-    state: undefined,
-    error: undefined,
-  });
+  const [info, setInfo] = useState<ConnectionInfo>(initialInfo);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function poll() {
+    async function seed() {
       try {
         const state = await getState();
         if (!cancelled) {
@@ -38,20 +49,51 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         if (cancelled) return;
-        if (isBridgeError(err) && err.kind === "unreachable") {
-          setInfo({ status: "unreachable", state: undefined, error: err.message });
-        } else {
-          const message = isBridgeError(err) ? err.message : String(err);
-          setInfo((prev) => ({ status: "error", state: prev.state, error: message }));
-        }
+        const message = isBridgeError(err) ? err.message : String(err);
+        setInfo({ status: "unreachable", state: undefined, error: message });
       }
     }
+    void seed();
 
-    void poll();
-    const id = window.setInterval(() => void poll(), pollIntervalMs);
+    let unlistenEvent: (() => void) | undefined;
+    let unlistenConnection: (() => void) | undefined;
+
+    void listen<DaemonEvent>("knobd:event", (event) => {
+      const payload = event.payload;
+      if (payload.type === "state" && payload.state) {
+        const nextState = payload.state;
+        setInfo((prev) => ({ status: "connected", state: nextState, error: prev.error }));
+      }
+    }).then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+        return;
+      }
+      unlistenEvent = unlisten;
+    });
+
+    void listen<ConnectionEventPayload>("knobd:connection", (event) => {
+      const { connected, error } = event.payload;
+      if (connected) {
+        // A (re)connection succeeded; re-seed in case its own one-time
+        // snapshot races this listener too (the same reasoning as the
+        // initial seed() above, on every reconnect, not just startup).
+        void seed();
+        return;
+      }
+      setInfo({ status: "unreachable", state: undefined, error });
+    }).then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+        return;
+      }
+      unlistenConnection = unlisten;
+    });
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      unlistenEvent?.();
+      unlistenConnection?.();
     };
   }, []);
 
