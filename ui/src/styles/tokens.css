@@ -1,0 +1,60 @@
+/* Design tokens: colors, spacing, radii as CSS custom properties, so
+ * components never hard-code a color and dark mode is one media query
+ * away. Light is the default; dark overrides under
+ * prefers-color-scheme (KDE Plasma users skew dark, and this is a
+ * webview with no separate "app theme" setting of its own). */
+:root {
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border: #d8dbe0;
+  --color-text: #1a1d24;
+  --color-text-muted: #5c6270;
+  --color-accent: #2f8f88;
+  --color-accent-contrast: #ffffff;
+  --color-danger: #c0392b;
+  --color-warning: #b8860b;
+  --color-success: #2f8f52;
+
+  /* Panel control states -- shared by the SVG panel and any list view
+   * that mirrors the same three-tier bound/unresolved/live distinction. */
+  --ctl-unbound: #c7cbd1;
+  --ctl-bound: #5c6270;
+  --ctl-live: #2f8f88;
+  --ctl-live-fill: #5cc8c2;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  --font-sans: -apple-system, "Segoe UI", "Noto Sans", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #181a20;
+    --color-surface: #21242c;
+    --color-surface-raised: #262a33;
+    --color-border: #383d47;
+    --color-text: #e7e9ee;
+    --color-text-muted: #9aa0ad;
+    --color-accent: #5cc8c2;
+    --color-accent-contrast: #0b1210;
+    --color-danger: #e0776a;
+    --color-warning: #e0b84d;
+    --color-success: #6bc98c;
+
+    --ctl-unbound: #454b57;
+    --ctl-bound: #9aa0ad;
+    --ctl-live: #5cc8c2;
+    --ctl-live-fill: #5cc8c2;
+  }
+}
