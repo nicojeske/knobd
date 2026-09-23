@@ -91,13 +91,26 @@ func (c *connStatus) snapshot() (api.DeviceState, api.AudioState) {
 // this blocks watchConnections' loop for its duration (a handful of
 // MIDI writes) -- acceptable since Connected only fires on an actual
 // reconnect, not a hot path.
-func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *audio.Supervisor, status *connStatus, eng *engine.Engine, log *slog.Logger) {
+//
+// notify, if non-nil, is called after every status change -- api.State's
+// Device/Audio fields depend on connStatus, so a connection change is
+// exactly the kind of thing GET /events' hub needs to know about even
+// though it never touches engine.Snapshot at all. cmd/knobd wires this
+// to hub.NotifyStateDirty, mirroring markLEDsDirty's own reuse as
+// engine.Deps.OnStateChanged's trigger set.
+func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *audio.Supervisor, status *connStatus, eng *engine.Engine, notify func(), log *slog.Logger) {
+	fire := func() {
+		if notify != nil {
+			notify()
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case info := <-midiSup.Connected():
 			status.setDeviceConnected(info)
+			fire()
 			if err := eng.RepaintLEDs(ctx); err != nil && ctx.Err() == nil {
 				// Non-fatal: engine.Run may not be consuming yet during
 				// startup's race between the two, or may have already
@@ -107,10 +120,13 @@ func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *a
 			}
 		case err := <-midiSup.Disconnected():
 			status.setDeviceDisconnected(err)
+			fire()
 		case <-audioSup.Connected():
 			status.setAudioConnected()
+			fire()
 		case err := <-audioSup.Disconnected():
 			status.setAudioDisconnected(err)
+			fire()
 		}
 	}
 }

@@ -82,6 +82,15 @@ type Deps struct {
 	// and must never block: daemon/internal/api's hub implementation is
 	// a non-blocking send into a single-slot, latest-wins buffer.
 	OnInput func(ev device.Event)
+	// OnStateChanged, if non-nil, is called (on the run goroutine, and
+	// must therefore never block) whenever engine state that Snapshot
+	// reflects may have changed. It is markLEDsDirty's wakeup seam,
+	// deliberately reusing that function's trigger set (every audio
+	// event, focus change, config change, resync, and learn arm/disarm/
+	// expiry already call it) -- see led.go. daemon/internal/api's hub
+	// implementation is a non-blocking send into a coalescing channel,
+	// exactly like NotifyLEDDirty's own caller.
+	OnStateChanged func()
 }
 
 func (d *Deps) setDefaults() {

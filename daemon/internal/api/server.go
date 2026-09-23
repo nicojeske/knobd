@@ -62,6 +62,9 @@ type Options struct {
 	Audio        AudioProvider
 	Capabilities CapabilitiesProvider
 	Learn        LearnController
+	// Events serves GET /events. Nil means that route answers 503,
+	// exactly like a nil Config/State/Audio/Learn/Capabilities.
+	Events *Hub
 	// Logger receives request lifecycle logging. Nil means slog.Default().
 	Logger *slog.Logger
 }
@@ -75,6 +78,7 @@ type Server struct {
 	audio        AudioProvider
 	capabilities CapabilitiesProvider
 	learn        LearnController
+	events       *Hub
 	log          *slog.Logger
 }
 
@@ -91,6 +95,7 @@ func New(opts Options) *Server {
 		audio:        opts.Audio,
 		capabilities: opts.Capabilities,
 		learn:        opts.Learn,
+		events:       opts.Events,
 		log:          log,
 	}
 	s.registerRoutes()
@@ -111,6 +116,7 @@ func (s *Server) handlers() map[string]http.HandlerFunc {
 		"getCapabilities": s.handleGetCapabilities,
 		"startLearn":      s.handleStartLearn,
 		"stopLearn":       s.handleStopLearn,
+		"events":          s.handleEvents,
 	}
 }
 
@@ -213,10 +219,18 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	srv := &http.Server{
 		Handler:           s,
 		ReadHeaderTimeout: 5 * time.Second,
-		// Deliberately no WriteTimeout: M07's WebSocket push channel is
-		// a long-lived response, and a WriteTimeout would sever it on a
-		// timer.
-		ErrorLog: slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
+		// Deliberately no WriteTimeout: GET /events is a long-lived
+		// response, and a WriteTimeout would sever it on a timer.
+		//
+		// BaseContext ties every request's context to ctx, so a
+		// long-lived GET /events handler's ctx.Done() fires the moment
+		// shutdown starts. http.Server.Shutdown does NOT cancel
+		// in-flight request contexts on its own -- without this, a
+		// single open stream would consume the entire ShutdownGrace
+		// waiting for its handler to notice Shutdown was called, since
+		// nothing else would ever tell it to return.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+		ErrorLog:    slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
 	}
 
 	errCh := make(chan error, 1)

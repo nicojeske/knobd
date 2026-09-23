@@ -113,5 +113,17 @@ func Routes() []Route {
 				{Status: 503, Schema: "ErrorResponse", Description: "No learn controller is wired up."},
 			},
 		},
+		{
+			Method:      "GET",
+			Path:        "/events",
+			OperationID: "events",
+			Summary:     "Subscribe to live events",
+			Description: "A Server-Sent Events stream: a hello frame, then a full state snapshot on connect, then state/config_changed/learn_input frames as they occur. See specs/adr/0004-ipc-over-unix-socket.md's Update (M07).",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "Event", Description: "text/event-stream of Event frames."},
+				{Status: 403, Schema: "ErrorResponse", Description: "Origin not on the allowlist."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No event hub is wired up."},
+			},
+		},
 	}
 }

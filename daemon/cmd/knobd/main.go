@@ -145,11 +145,13 @@ func runDaemon(args []string) error {
 	}
 
 	registry := actions.NewRegistry()
-	// eng is assigned below, after Deps needs volumeHandlers -- OnApplied
-	// closes over the variable itself (not its value at closure-creation
-	// time), and is never actually called until well after eng is set,
-	// once Engine.Run is consuming its own dispatcher's writes.
+	// eng and hub are assigned below, after Deps needs them -- OnApplied/
+	// OnStateChanged/OnInput close over the variables themselves (not
+	// their values at closure-creation time), and none is actually
+	// called until well after both are set, once Engine.Run and Hub.Run
+	// are consuming their own inputs.
 	var eng *engine.Engine
+	var hub *api.Hub
 	volumeHandlers := actions.NewVolumeHandlers(audioSup, actions.VolumeOptions{
 		Logger: logger,
 		OnApplied: func(audio.Ref, audio.VolumeState) {
@@ -169,6 +171,16 @@ func runDaemon(args []string) error {
 		Registry: registry,
 		Logger:   logger,
 		Observer: volumeHandlers,
+		OnStateChanged: func() {
+			if hub != nil {
+				hub.NotifyStateDirty()
+			}
+		},
+		OnInput: func(ev device.Event) {
+			if hub != nil {
+				hub.NotifyLearnInput(learnInputFromEvent(ev))
+			}
+		},
 	})
 
 	store := newConfigStore(path, cfg, eng, logger)
@@ -190,6 +202,20 @@ func runDaemon(args []string) error {
 
 	status := &connStatus{}
 	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
+	// hub was forward-declared above so eng.Deps.OnStateChanged/OnInput
+	// could close over it; assign it now that state (its StateProvider)
+	// exists. See specs/adr/0004-ipc-over-unix-socket.md's Update (M07)
+	// for why this is SSE rather than WebSocket.
+	hub = api.NewHub(api.HubOptions{
+		State: state,
+		// tauri://localhost is the packaged UI's origin; the
+		// http://localhost:1420 entries are Vite's dev server. Requests
+		// with no Origin header at all (in particular the Rust bridge,
+		// this API's only real client) are always allowed regardless --
+		// see HubOptions.AllowedOrigins' doc comment.
+		AllowedOrigins: []string{"tauri://localhost", "http://localhost:1420"},
+		Logger:         logger,
+	})
 	audioGraph := newAudioGraph(audioSup, store)
 	capabilities := newCapabilitiesProvider(registry)
 	learnCtl := newLearnController(eng)
@@ -199,6 +225,7 @@ func runDaemon(args []string) error {
 		Audio:        audioGraph,
 		Capabilities: capabilities,
 		Learn:        learnCtl,
+		Events:       hub,
 		Logger:       logger,
 	})
 
@@ -220,17 +247,18 @@ func runDaemon(args []string) error {
 		name string
 		err  error
 	}
-	// Three components race to exit first; whichever does cancels the
-	// other two. Hand-rolled rather than golang.org/x/sync/errgroup: it's
+	// Four components race to exit first; whichever does cancels the
+	// rest. Hand-rolled rather than golang.org/x/sync/errgroup: it's
 	// ~20 lines, it would be this binary's third direct dependency in a
 	// project whose ADR 0001 makes the single-static-binary property
 	// explicit, and errgroup discards every error after the first, when
-	// the second/third component's exit reason is worth logging too.
-	exits := make(chan exit, 3)
+	// another component's exit reason is worth logging too.
+	exits := make(chan exit, 4)
 	go func() { exits <- exit{"engine", eng.Run(runCtx)} }()
 	go func() { exits <- exit{"api", srv.ListenAndServe(runCtx, sock)} }()
+	go func() { exits <- exit{"events", hub.Run(runCtx)} }()
 	go func() {
-		watchConnections(runCtx, midiSup, audioSup, status, eng, logger)
+		watchConnections(runCtx, midiSup, audioSup, status, eng, hub.NotifyStateDirty, logger)
 		exits <- exit{"connections", nil}
 	}()
 	go func() {
@@ -259,7 +287,7 @@ func runDaemon(args []string) error {
 	if first.err != nil {
 		fatal = fmt.Errorf("%s: %w", first.name, first.err)
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		e := <-exits
 		if e.err != nil {
 			logger.Error("component stopped", "component", e.name, "err", e.err)

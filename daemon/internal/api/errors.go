@@ -35,6 +35,10 @@ func errNoLearnController() error {
 	return fmt.Errorf("api: this server has no LearnController configured")
 }
 
+func errNoHub() error {
+	return fmt.Errorf("api: this server has no event Hub configured")
+}
+
 // ErrorCode is the machine-readable half of ErrorResponse, so a client
 // can distinguish "you sent something invalid" from "my disk is full"
 // without string-matching Message.
@@ -46,6 +50,15 @@ const (
 	CodeInvalidConfig            ErrorCode = "invalid_config"
 	CodeUnavailable              ErrorCode = "unavailable"
 	CodeInternal                 ErrorCode = "internal"
+	// CodeForbiddenOrigin is GET /events' response when the request's
+	// Origin header isn't on the hub's allowlist. Defence in depth on
+	// top of ADR 0004's 0600 socket permissions -- nothing in a browser
+	// can dial a unix socket at all -- not the primary guard.
+	CodeForbiddenOrigin ErrorCode = "forbidden_origin"
+	// CodeSlowConsumer is the terminal EventError a GET /events
+	// subscriber receives when it fell far enough behind that the hub
+	// closes its stream rather than blocking every other subscriber.
+	CodeSlowConsumer ErrorCode = "slow_consumer"
 )
 
 // ErrorCodes returns every ErrorCode this package can produce, for
@@ -58,6 +71,8 @@ func ErrorCodes() []ErrorCode {
 		CodeInvalidConfig,
 		CodeUnavailable,
 		CodeInternal,
+		CodeForbiddenOrigin,
+		CodeSlowConsumer,
 	}
 }
 

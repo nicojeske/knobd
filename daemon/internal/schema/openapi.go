@@ -23,6 +23,7 @@ var componentTypes = map[string]any{
 	"Capabilities":  api.Capabilities{},
 	"LearnRequest":  api.LearnRequest{},
 	"LearnState":    api.LearnState{},
+	"Event":         api.Event{},
 	"ErrorResponse": api.ErrorResponse{},
 }
 

@@ -85,6 +85,14 @@ func (e *Engine) markLEDsDirty(ctx context.Context, cfg model.Config, bindings *
 	if e.clk.Now().Sub(leds.lastPush) >= ledFlushInterval {
 		e.flushLEDs(ctx, cfg, bindings, res, layer, leds)
 	}
+	// markLEDsDirty is called at exactly the set of moments api.State can
+	// change (audio events, focus changes, config changes, resyncs, and
+	// learn arm/disarm/expiry) -- deliberately reused as
+	// OnStateChanged's wakeup seam rather than adding a second,
+	// parallel set of call sites. See Deps.OnStateChanged's doc comment.
+	if e.deps.OnStateChanged != nil {
+		e.deps.OnStateChanged()
+	}
 }
 
 // flushLEDs recomputes desired LED state and writes only the controls

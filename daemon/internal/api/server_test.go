@@ -188,6 +188,65 @@ func TestSocketTransport(t *testing.T) {
 	}
 }
 
+// TestServeReturnsPromptlyWithAnOpenStream is the BaseContext regression
+// gate: without it, http.Server.Shutdown does not cancel an in-flight
+// request's context on its own, so a single open GET /events connection
+// would consume the entire ShutdownGrace waiting for its handler to
+// notice on its own (which it never would, since nothing else tells it
+// to return). With BaseContext wired to ctx, Serve must return almost
+// immediately once ctx is canceled, well under ShutdownGrace.
+func TestServeReturnsPromptlyWithAnOpenStream(t *testing.T) {
+	path := filepath.Join(shortSocketDir(t), "s.sock")
+	ln, err := listen(path)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	hub := NewHub(HubOptions{State: &fakeState{}})
+	hubCtx, cancelHub := context.WithCancel(context.Background())
+	defer cancelHub()
+	go hub.Run(hubCtx)
+
+	s := New(Options{Events: hub, State: &fakeState{}})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx, ln) }()
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", path)
+		},
+	}}
+
+	var resp *http.Response
+	waitForListener(t, func() (err error) {
+		resp, err = client.Get("http://knobd/events")
+		return err
+	})
+	defer resp.Body.Close()
+	// Confirm the stream is actually open and delivering before testing
+	// shutdown against it -- otherwise this would trivially pass even
+	// without BaseContext.
+	buf := make([]byte, 64)
+	if _, err := resp.Body.Read(buf); err != nil {
+		t.Fatalf("read from open stream: %v", err)
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve returned %v, want nil", err)
+		}
+	case <-time.After(ShutdownGrace):
+		t.Fatal("Serve did not return within ShutdownGrace with a stream open")
+	}
+	if elapsed := time.Since(start); elapsed >= ShutdownGrace {
+		t.Errorf("Serve took %v to return, want well under ShutdownGrace (%v) -- BaseContext regression", elapsed, ShutdownGrace)
+	}
+}
+
 func waitForListener(t *testing.T, try func() error) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

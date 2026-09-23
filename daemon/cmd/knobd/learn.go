@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/njeske/knobd/internal/api"
+	"github.com/njeske/knobd/internal/device"
 	"github.com/njeske/knobd/internal/engine"
+	"github.com/njeske/knobd/internal/model"
 )
 
 // learnEngine is the slice of *engine.Engine learnController needs -- a
@@ -46,4 +48,27 @@ func (l *learnController) StartLearn(ctx context.Context, timeout time.Duration)
 // StopLearn implements api.LearnController.
 func (l *learnController) StopLearn(ctx context.Context) error {
 	return l.eng.SetLearnUntil(ctx, time.Time{})
+}
+
+// learnInputFromEvent translates a captured device.Event -- always an
+// EventTurn, EventFaderMove, or EventButtonDown; see engine/learn.go's
+// doc comment for why those three and not EventButtonUp -- into the
+// api.LearnInput the UI receives over GET /events. SuggestedGesture is
+// a stateless map from the raw event kind, not a claim about what the
+// user meant: learn deliberately does not run the gesture machine, so
+// the actual gesture is left to the UI's own picker (constrained by
+// docs/device-layout.json's matrix), seeded with this suggestion.
+func learnInputFromEvent(ev device.Event) api.LearnInput {
+	input := api.LearnInput{Control: ev.Control, At: ev.Time}
+	switch ev.Kind {
+	case device.EventTurn:
+		input.SuggestedGesture = model.GestureTurn
+		input.Delta = ev.Delta
+	case device.EventFaderMove:
+		input.SuggestedGesture = model.GestureMove
+		input.Value = ev.Value
+	case device.EventButtonDown:
+		input.SuggestedGesture = model.GesturePress
+	}
+	return input
 }

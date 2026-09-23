@@ -133,6 +133,45 @@
         }
       }
     },
+    "/events": {
+      "get": {
+        "operationId": "events",
+        "summary": "Subscribe to live events",
+        "description": "A Server-Sent Events stream: a hello frame, then a full state snapshot on connect, then state/config_changed/learn_input frames as they occur. See specs/adr/0004-ipc-over-unix-socket.md's Update (M07).",
+        "responses": {
+          "200": {
+            "description": "text/event-stream of Event frames.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin not on the allowlist.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No event hub is wired up.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/learn": {
       "delete": {
         "operationId": "stopLearn",
@@ -947,6 +986,18 @@
           "scenes"
         ]
       },
+      "ConfigChanged": {
+        "properties": {
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ]
+      },
       "Control": {
         "properties": {
           "kind": {
@@ -1057,7 +1108,9 @@
               "unsupported_schema_version",
               "invalid_config",
               "unavailable",
-              "internal"
+              "internal",
+              "forbidden_origin",
+              "slow_consumer"
             ]
           },
           "message": {
@@ -1069,6 +1122,42 @@
         "required": [
           "code",
           "message"
+        ]
+      },
+      "Event": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "integer"
+          },
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hello": {
+            "$ref": "#/components/schemas/Hello"
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "config": {
+            "$ref": "#/components/schemas/ConfigChanged"
+          },
+          "input": {
+            "$ref": "#/components/schemas/LearnInput"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "seq",
+          "now"
         ]
       },
       "Features": {
@@ -1104,6 +1193,26 @@
         "type": "object",
         "required": [
           "available"
+        ]
+      },
+      "Hello": {
+        "properties": {
+          "protocolVersion": {
+            "type": "integer"
+          },
+          "schemaVersion": {
+            "type": "integer"
+          },
+          "flushIntervalMs": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "protocolVersion",
+          "schemaVersion",
+          "flushIntervalMs"
         ]
       },
       "KnobAssignFocusedAppAction": {
@@ -1159,6 +1268,41 @@
         "type": "object",
         "required": [
           "layer"
+        ]
+      },
+      "LearnInput": {
+        "properties": {
+          "control": {
+            "$ref": "#/components/schemas/Control"
+          },
+          "suggestedGesture": {
+            "type": "string",
+            "enum": [
+              "turn",
+              "press",
+              "hold",
+              "release",
+              "double_press",
+              "move"
+            ]
+          },
+          "delta": {
+            "type": "integer"
+          },
+          "value": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "control",
+          "suggestedGesture",
+          "at"
         ]
       },
       "LearnRequest": {
