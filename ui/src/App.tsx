@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import styles from "./App.module.css";
+import { AppsView } from "./components/apps/AppsView";
 import { StatusBar } from "./components/common/StatusBar";
 import { Panel } from "./components/panel/Panel";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
@@ -25,12 +26,7 @@ function ViewContent({ view }: { view: View }) {
     case "panel":
       return <Panel />;
     case "apps":
-      return (
-        <PlaceholderView
-          title="Apps & Groups"
-          note="App matcher and group management, backed by GET /audio, land in a later commit of this milestone."
-        />
-      );
+      return <AppsView />;
     case "profiles":
       return <PlaceholderView title="Profiles" note="Profile management lands in a later commit of this milestone." />;
     case "diagnostics":
