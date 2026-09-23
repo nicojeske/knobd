@@ -183,7 +183,11 @@ func runDaemon(args []string) error {
 		},
 	})
 
-	store := newConfigStore(path, cfg, eng, logger)
+	store := newConfigStore(path, cfg, eng, func(rev uint64) {
+		if hub != nil {
+			hub.NotifyConfigChanged(rev)
+		}
+	}, logger)
 
 	assignHandlers := actions.NewAssignHandlers(store, focusProv, actions.AssignOptions{
 		Logger: logger,

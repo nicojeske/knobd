@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/njeske/knobd/internal/config"
 	"github.com/njeske/knobd/internal/model"
@@ -33,7 +34,7 @@ func discardLogger() *slog.Logger {
 func TestConfigStoreSetConfigSuccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	applier := &stubApplier{}
-	store := newConfigStore(path, model.Default(), applier, discardLogger())
+	store := newConfigStore(path, model.Default(), applier, nil, discardLogger())
 
 	next := model.Default()
 	next.Profiles[0].DisplayName = "Renamed"
@@ -60,7 +61,7 @@ func TestConfigStoreSetConfigRejectsInvalid(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	applier := &stubApplier{}
 	original := model.Default()
-	store := newConfigStore(path, original, applier, discardLogger())
+	store := newConfigStore(path, original, applier, nil, discardLogger())
 
 	invalid := model.Config{ActiveProfileID: "nonexistent"} // Validate fails: no such profile
 	if err := store.SetConfig(context.Background(), invalid); err == nil {
@@ -78,7 +79,7 @@ func TestConfigStoreSetConfigApplierFailureLeavesDiskUntouched(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	applier := &stubApplier{err: errors.New("engine refused it")}
 	original := model.Default()
-	store := newConfigStore(path, original, applier, discardLogger())
+	store := newConfigStore(path, original, applier, nil, discardLogger())
 
 	next := model.Default()
 	next.Profiles[0].DisplayName = "Should Not Land"
@@ -111,7 +112,7 @@ func TestConfigStoreSetConfigSaveFailureRollsEngineBack(t *testing.T) {
 
 	applier := &stubApplier{}
 	original := model.Default()
-	store := newConfigStore(path, original, applier, discardLogger())
+	store := newConfigStore(path, original, applier, nil, discardLogger())
 
 	next := model.Default()
 	next.Profiles[0].DisplayName = "Rolled Back"
@@ -130,4 +131,94 @@ func TestConfigStoreSetConfigSaveFailureRollsEngineBack(t *testing.T) {
 	if applier.calls[1].Profiles[0].DisplayName != original.Profiles[0].DisplayName {
 		t.Errorf("rollback call = %+v, want the original config", applier.calls[1])
 	}
+}
+
+// TestConfigStoreOnChangedFiresOnceOnSuccess checks onChanged fires
+// exactly once, with an incremented revision, after a fully successful
+// SetConfig -- and that it fires with the *new* config already visible
+// via Config(), i.e. genuinely after the swap, not concurrently with it.
+func TestConfigStoreOnChangedFiresOnceOnSuccess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	applier := &stubApplier{}
+	var got []uint64
+	store := newConfigStore(path, model.Default(), applier, func(rev uint64) {
+		got = append(got, rev)
+	}, discardLogger())
+
+	if err := store.SetConfig(context.Background(), model.Default()); err != nil {
+		t.Fatalf("SetConfig: %v", err)
+	}
+	if err := store.SetConfig(context.Background(), model.Default()); err != nil {
+		t.Fatalf("SetConfig: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("onChanged called %d times, want 2", len(got))
+	}
+	if got[0] != 1 || got[1] != 2 {
+		t.Errorf("revisions = %v, want [1 2] (monotonic, starting at 1)", got)
+	}
+}
+
+// TestConfigStoreOnChangedNotCalledUnderLock proves onChanged runs
+// outside s.mu: it calls store.Config() (an RLock) from inside the
+// callback, which would deadlock if onChanged were still invoked while
+// SetConfig's write lock was held.
+func TestConfigStoreOnChangedNotCalledUnderLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	applier := &stubApplier{}
+	var store *configStore
+	store = newConfigStore(path, model.Default(), applier, func(uint64) {
+		_ = store.Config() // deadlocks if called while s.mu is still held
+	}, discardLogger())
+
+	done := make(chan error, 1)
+	go func() { done <- store.SetConfig(context.Background(), model.Default()) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("SetConfig: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetConfig did not return -- onChanged likely deadlocked calling Config() under the write lock")
+	}
+}
+
+// TestConfigStoreOnChangedNotCalledOnFailure checks the two failure
+// paths TestConfigStoreSetConfigApplierFailureLeavesDiskUntouched and
+// TestConfigStoreSetConfigSaveFailureRollsEngineBack exercise never
+// fire onChanged -- a rollback must be invisible to subscribers.
+func TestConfigStoreOnChangedNotCalledOnFailure(t *testing.T) {
+	t.Run("applier failure", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		applier := &stubApplier{err: errors.New("engine refused it")}
+		called := false
+		store := newConfigStore(path, model.Default(), applier, func(uint64) { called = true }, discardLogger())
+
+		if err := store.SetConfig(context.Background(), model.Default()); err == nil {
+			t.Fatal("expected an error")
+		}
+		if called {
+			t.Error("onChanged was called despite the applier failing")
+		}
+	})
+
+	t.Run("save failure with rollback", func(t *testing.T) {
+		blocker := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(blocker, []byte("blocking"), 0o644); err != nil {
+			t.Fatalf("write blocker file: %v", err)
+		}
+		path := filepath.Join(blocker, "config.json")
+		applier := &stubApplier{}
+		called := false
+		store := newConfigStore(path, model.Default(), applier, func(uint64) { called = true }, discardLogger())
+
+		if err := store.SetConfig(context.Background(), model.Default()); err == nil {
+			t.Fatal("expected a save error")
+		}
+		if called {
+			t.Error("onChanged was called despite the save failing and rolling back")
+		}
+	})
 }
