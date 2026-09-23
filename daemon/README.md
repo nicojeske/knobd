@@ -32,9 +32,12 @@ internal/
                       everything else is built around.
   config/            load/save/migrate ~/.config/knobd/config.json.
                       Fully implemented and tested.
-  schema/            generates the JSON Schema for model.Config that
-                      cmd/schemagen writes out; the model package itself
-                      stays dependency-free.
+  schema/            generates the JSON Schema for model.Config
+                      (schema.go), the OpenAPI 3.1 document for
+                      daemon/internal/api's routes (openapi.go), and the
+                      hardware index-range/gesture-matrix document
+                      (devicelayout.go) that cmd/schemagen writes out;
+                      the model package itself stays dependency-free.
   midi/              Port interface + FakePort, plus the real backend
                       (M02): discovery (discover.go), a running-status
                       byte-stream parser (parser.go), the rawmidi Port
@@ -67,7 +70,10 @@ internal/
                       audio.Backend/actions.Registry call and coalesces
                       rapid turns/fader moves. SetConfig/Snapshot
                       (state.go) are channel round trips served by the
-                      same run goroutine, so there are no mutexes here.
+                      same run goroutine, so there are no mutexes here;
+                      (M07) SetLearnUntil (learn.go) is the same pattern
+                      for MIDI learn, suppressing dispatch of every
+                      decoded event while armed.
                       (M05, led.go) also pushes LED updates from that
                       same goroutine on every resolved volume/mute
                       change, rate-limited (leading edge + trailing
@@ -81,9 +87,13 @@ internal/
                       families: TODO(M08, M09, M11 — see registry.go's
                       doc comment).
   api/               (M04) GET/PUT /config and GET /state over the unix
-                      socket (server.go, handlers.go, state.go). The
-                      WebSocket push channel and OpenAPI generation:
-                      TODO(M07).
+                      socket (server.go, handlers.go, state.go); (M07)
+                      GET /audio, GET /capabilities, POST/DELETE /learn,
+                      and a GET /events Server-Sent Events stream
+                      (hub.go, stream_sse.go, events.go) for live state,
+                      learn captures, and config-change notifications.
+                      The route table (routes.go) also drives OpenAPI
+                      generation — see ../internal/schema.
 ```
 
 Every package that talks to hardware or the desktop environment is
