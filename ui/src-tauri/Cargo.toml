@@ -3,7 +3,9 @@ name = "knobd-ui"
 version = "0.0.0"
 description = "Configuration UI for knobd"
 edition = "2021"
-rust-version = "1.75"
+# Tauri 2's actual MSRV; the old 1.75 floor here predated the tauri
+# dependency being added and was never checked against it.
+rust-version = "1.78"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

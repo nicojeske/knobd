@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  knobd's tray icon: a flat, single-color silhouette of the same knob +
+  ring shape as knobd.svg, simplified for legibility at 22-32px and for
+  KDE's StatusNotifierItem recoloring (a busy multi-tone icon reads as
+  mush at tray size and fights the panel's own theme colors). Rendered
+  to icons/tray.png separately from `npm run tauri icon`; see
+  icons/README.md.
+-->
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round">
+    <!-- 8 ring ticks (simplified from the full 13-segment ring: legible
+         at tray size, still reads as "a knob with an indicator ring"). -->
+    <line x1="128" y1="26" x2="128" y2="50" stroke-width="14"/>
+    <line x1="198" y1="58" x2="182" y2="76" stroke-width="14"/>
+    <line x1="228" y1="128" x2="204" y2="128" stroke-width="14"/>
+    <line x1="198" y1="198" x2="182" y2="180" stroke-width="14"/>
+    <line x1="58" y1="198" x2="74" y2="180" stroke-width="14"/>
+    <line x1="28" y1="128" x2="52" y2="128" stroke-width="14"/>
+    <line x1="58" y1="58" x2="74" y2="76" stroke-width="14"/>
+  </g>
+  <circle cx="128" cy="128" r="58" fill="#FFFFFF"/>
+  <line x1="128" y1="128" x2="128" y2="82" stroke="#1A1D24" stroke-width="10" stroke-linecap="round" transform="rotate(45 128 128)"/>
+</svg>

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "knobd-ui's main window: our own #[tauri::command]s need no capability (they aren't plugin commands), but @tauri-apps/api/event's listen()/unlisten() are core:event plugin commands and do -- core:default grants those, plus the ordinary window operations the webview needs.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

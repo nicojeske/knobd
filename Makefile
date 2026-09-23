@@ -1,4 +1,4 @@
-.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev
+.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
@@ -71,6 +71,11 @@ ui-install: ## Install UI dependencies
 
 ui-dev: ## Run the UI in dev mode (requires ui-install and a Rust toolchain)
 	cd ui && npm run tauri dev
+
+ui-icons: ## Regenerate ui/src-tauri/icons/ from icons/source/*.svg
+	cd ui && npx tauri icon src-tauri/icons/source/knobd.svg
+	rm -rf ui/src-tauri/icons/android ui/src-tauri/icons/ios ui/src-tauri/icons/Square*.png ui/src-tauri/icons/StoreLogo.png ui/src-tauri/icons/64x64.png
+	rsvg-convert -w 32 -h 32 ui/src-tauri/icons/source/tray.svg -o ui/src-tauri/icons/tray.png
 
 clean:
 	rm -f $(BIN)
