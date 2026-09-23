@@ -58,17 +58,30 @@ function buildAction(type: ActionType): Action {
 export function BindingEditor({
   kind: primaryKind,
   index,
+  preferredGesture,
   onClose,
 }: {
   kind: ControlKind;
   index: number;
+  /** preferredGesture pre-selects a gesture when the editor opens --
+   * used by MIDI learn to seed the gesture picker with the physically-
+   * observed action (turn/move/press) without forcing it: learn
+   * deliberately doesn't run the gesture machine (see
+   * daemon/internal/engine/learn.go), so this is a starting point the
+   * user can still change, not a claim about what they meant.
+   * Required-but-nullable, not `?:`: Panel.tsx passes this from its own
+   * `Selection` state, which is `Gesture | undefined` under
+   * exactOptionalPropertyTypes -- an `?:` prop here would reject that
+   * value explicitly passed. */
+  preferredGesture: Gesture | undefined;
   onClose: () => void;
 }) {
   const { config, reload } = useConfig();
   const { capabilities } = useCapabilities();
 
   const options = useMemo(() => gestureOptions(primaryKind), [primaryKind]);
-  const firstOption = options[0];
+  const preferredOption = preferredGesture ? options.find((o) => o.gesture === preferredGesture) : undefined;
+  const firstOption = preferredOption ?? options[0];
   const [selectionKey, setSelectionKey] = useState<string>(
     firstOption ? `${firstOption.kind}:${firstOption.gesture}` : "",
   );
