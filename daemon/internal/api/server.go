@@ -158,8 +158,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // concurrency at all, a single non-templated `systemctl --user` unit
 // already serializes ordinary starts, and the real long-term fix is
 // systemd socket activation (a `knobd.socket` unit), which eliminates
-// the problem entirely and belongs to M12's packaging work, not a
-// flock workaround here.
+// the problem entirely. M12 (packaging) deliberately left this for a
+// future follow-up rather than taking it on alongside the PKGBUILD --
+// see that milestone's spec.
 func listen(path string) (net.Listener, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

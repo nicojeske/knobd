@@ -34,7 +34,7 @@ milestones/   M01-M12: one file per unit of work, in dependency order.
 | [M09](milestones/M09-media-transport-mpris.md) | Media transport (MPRIS) | Not started | M04 |
 | [M10](milestones/M10-spotify-web-api.md) | Spotify Web API | Not started | M09 |
 | [M11](milestones/M11-extended-actions.md) | Extended actions | Not started | M04 |
-| [M12](milestones/M12-packaging.md) | Packaging | Not started | M02–M09 (at least) |
+| [M12](milestones/M12-packaging.md) | Packaging | In progress (hand verification with hardware still open) | M02–M09 (at least) |
 
 M04 is the line where the project becomes actually usable: turn a knob,
 an application's volume changes. Everything before it is plumbing;

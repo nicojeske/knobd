@@ -20,7 +20,7 @@ the hardware/environment facts this project is built on.
 ```
 daemon/       Go daemon (cmd/knobd + internal packages) — see daemon/README.md
 ui/           Tauri + React + TypeScript configuration UI — see ui/README.md
-packaging/    systemd unit, udev rule, KWin focus-tracking script
+packaging/    PKGBUILD (packaging/arch), systemd unit, udev rule, desktop file
 testdata/     Captured MIDI and PipeWire fixtures used by daemon tests
 docs/         Generated artifacts (JSON Schema, OpenAPI spec)
 specs/        Milestone specs, ADRs, and reference docs — start here
@@ -45,10 +45,22 @@ cd daemon && go build ./... && go vet ./...
 
 The UI is scaffolded but not buildable yet — see `ui/README.md`.
 
-## Running as a systemd user service
+## Installing
 
-Full packaging is M12; for now, `make install-user` copies the binary
-and the unit file into place:
+On Arch/CachyOS, `packaging/arch` builds and installs both `knobd` and
+`knobd-ui` as a proper package — the daemon's systemd unit, udev rule,
+and the UI's desktop entry are all placed and enabled automatically
+(see `packaging/README.md` for exactly what that means and how to
+uninstall):
+
+```bash
+cd packaging/arch && makepkg -si
+journalctl --user -u knobd -f
+```
+
+For iterating on the daemon itself without a full package rebuild,
+`make install-user` copies just the binary and the unit file into
+`~/.local`:
 
 ```bash
 make install-user

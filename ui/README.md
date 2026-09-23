@@ -52,8 +52,11 @@ src-tauri/
                   (from the repo root) — see icons/README.md
   tauri.conf.json window + bundle config; bundle.targets is narrowed to
                   ["deb"] for now (AppImage needs patchelf, which isn't
-                  installed, plus a network fetch of linuxdeploy) —
-                  M12 owns the final packaging decision
+                  installed, plus a network fetch of linuxdeploy) — the
+                  Arch package (packaging/arch) doesn't use this bundler
+                  at all, building with `tauri build --no-bundle` and
+                  installing the resulting binary + a hand-written
+                  desktop file/icons itself; see packaging/README.md
 ```
 
 ## Building
