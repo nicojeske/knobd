@@ -12,7 +12,7 @@
 
 pkgbase=knobd
 pkgname=(knobd knobd-ui)
-pkgver=r48.30cb591
+pkgver=r51.da0481f
 pkgrel=1
 pkgdesc="X-Touch Mini audio mixer & macro daemon"
 arch=(x86_64)
