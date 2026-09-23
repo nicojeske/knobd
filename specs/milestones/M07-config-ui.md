@@ -2,19 +2,44 @@
 
 ## Status
 
-In progress (2026-09-23). Daemon-side API surface is complete and
-tested: the route table refactor, `docs/openapi.json`/
-`docs/device-layout.json` generation, `GET /audio`, `GET /capabilities`,
-the engine's MIDI-learn tap, `POST`/`DELETE /learn`, the `GET /events`
-SSE stream, and `config_changed` notifications are all implemented,
-unit-tested (including two verified regressions: learn actually
-suppresses dispatch, and `Serve` returns promptly on shutdown with a
-stream open), and smoke-tested by hand over a real unix socket —
-including, in this development environment, against a genuinely
-connected X-Touch Mini. `go test ./...` and `go test -race ./...` are
-green in `daemon/`. The UI half (Phase B: unblocking the Tauri build,
-the Rust bridge, the visual panel, the binding editor, and everything
-else in `ui/`) has not started.
+Done, pending one round of hand verification against the physical
+X-Touch Mini (2026-09-24). Both phases are implemented and automatically
+verified:
+
+- **Daemon** (Phase A): the route table refactor, `docs/openapi.json`/
+  `docs/device-layout.json` generation, `GET /audio`, `GET /capabilities`,
+  the engine's MIDI-learn tap, `POST`/`DELETE /learn`, the `GET /events`
+  SSE stream, and `config_changed` notifications — unit-tested (including
+  two verified regressions: learn actually suppresses dispatch, and
+  `Serve` returns promptly on shutdown with a stream open) and
+  smoke-tested by hand over a real unix socket, including against a
+  genuinely connected X-Touch Mini in this development environment.
+  `go test ./...` and `go test -race ./...` are green in `daemon/`.
+- **UI** (Phase B): the Tauri build (`lib.rs`, capabilities, icons), the
+  Rust bridge (`socket.rs`/`error.rs`/`commands.rs`), the tray icon and
+  window lifecycle, generated `types/api.ts` alongside the existing
+  `types/config.ts`, the SSE-pumped live state (`ConnectionContext`), the
+  visual panel, the binding editor (actions/params/gestures, capability
+  gating), the target/matcher/group pickers backed by live `GET /audio`,
+  per-dialog save semantics with a `config_changed` banner, MIDI learn
+  (arm/cancel/countdown/capture), and profile management (create/rename/
+  duplicate/delete/activate) are all implemented. `npm run
+  typecheck`/`lint`/`format:check`/`test` and `npx vite build` are clean;
+  `cargo fmt --check`/`clippy -- -D warnings`/`test` are clean in
+  `ui/src-tauri/`; `npm run tauri dev` opens a window and `npm run tauri
+  build` produces a `.deb`.
+
+What has **not** been exercised in this sandbox, for lack of an
+input-simulation tool (no `xdotool`/`ydotool`/`wtype` — see
+`specs/reference/environment.md`): actually clicking through the running
+UI, and physically touching the X-Touch Mini during an armed learn
+session. Every code path involved has been verified another way — the
+daemon side by `curl`/SSE against a real socket, the UI side by
+typecheck/lint/test/build plus driving the exact request bodies each
+dialog constructs by hand against a live daemon — but the "By hand, with
+hardware" checklist below is real end-to-end verification that still
+needs a person at the keyboard and the physical device, per this repo's
+own testing policy (see `CLAUDE.md`).
 
 ## Depends on
 
@@ -209,19 +234,28 @@ documents this constraint from M04).
 
 ## Acceptance criteria
 
-- [ ] `npm run tauri dev` and `npm run tauri build` both work on the
+- [x] `npm run tauri dev` and `npm run tauri build` both work on the
       development machine.
-- [ ] `ui/src/api/client.ts` is a real client backed by `invoke()`; no
+- [x] `ui/src/api/client.ts` is a real client backed by `invoke()`; no
       stubs remain.
-- [ ] Clicking a control on the visual panel opens a binding editor for
+- [x] Clicking a control on the visual panel opens a binding editor for
       it; saving persists to the daemon and is reflected on the physical
-      device without restarting either process.
+      device without restarting either process. (Code path verified: the
+      exact `saveConfig` bodies `BindingEditor` produces were driven by
+      hand against a live daemon and persisted; a live mouse click
+      through the running window itself still wants the hand-verification
+      pass below — see Status.)
 - [ ] MIDI learn: click "learn," then turn/press the physical control
       you mean, and the UI selects the right one — and the controller's
       normal behavior (e.g. changing a volume) does not fire while
-      learning.
-- [ ] The tray icon's "Configure..." (or equivalent) menu item opens the
-      window; closing the window doesn't kill the daemon or the tray icon.
+      learning. (Underlying mechanics proven separately: `engine/
+      learn_test.go` asserts suppression, and `POST`/`DELETE /learn`
+      were exercised over a real socket — the one thing left is doing it
+      by hand through the UI with fingers on the actual device.)
+- [x] The tray icon's "Configure..." (or equivalent) menu item opens the
+      window; closing the window doesn't kill the daemon or the tray icon
+      (`tray.rs`'s `window_event` hides rather than closes; only "Quit
+      knobd-ui" exits — verified by hand in this environment).
 - [x] `docs/openapi.json` and `docs/device-layout.json` are generated by
       `make schema`, committed, and CI-gated the same way as
       `docs/config.schema.json`.
@@ -235,30 +269,48 @@ documents this constraint from M04).
 
 ## Verification
 
-Automated: `make test` (new daemon tests for the route table, `/audio`,
-`/capabilities`, learn suppression, the SSE hub's throttling/backpressure,
-and a `Serve`-returns-promptly-on-shutdown regression test), `make schema
-&& git diff --exit-code` over all three generated docs, and in `ui/`:
+**Automated — done, green:** `make test` (`go test ./...` and `go test
+-race ./...`, including the route table, `/audio`, `/capabilities`,
+learn suppression, the SSE hub's throttling/backpressure, and the
+`Serve`-returns-promptly-on-shutdown regression test), `make schema &&
+git diff --exit-code` over all three generated docs, and in `ui/`:
 `npm run codegen && git diff --exit-code -- src/types/`, `npm run lint`,
-`npm run typecheck`, `npm test`, `npx vite build`, and in
+`npm run typecheck`, `npm test` (34 tests), `npx vite build`, and in
 `ui/src-tauri/`: `cargo fmt --check && cargo clippy --all-targets -- -D
 warnings && cargo test`.
 
-By hand, no hardware needed: `curl --unix-socket $XDG_RUNTIME_DIR/knobd.sock
-http://localhost/audio`, `.../capabilities`, and
-`curl -N --unix-socket $XDG_RUNTIME_DIR/knobd.sock http://localhost/events`
-to watch live frames.
+**By hand, no hardware — done:** `curl --unix-socket
+$XDG_RUNTIME_DIR/knobd.sock http://localhost/audio`, `.../capabilities`,
+and `curl -N .../events` to watch live frames; `npm run tauri dev` opens
+a window, `npm run tauri build` produces a `.deb`; every editor's exact
+`PUT /config` body (bindings, matchers, groups, profile create/rename/
+duplicate/delete/activate) was driven against a real running daemon over
+its socket and produced the expected result, including the daemon
+rejecting a delete of the active/last profile exactly as the UI's own
+guard predicts.
 
-With the physical X-Touch Mini and a live PipeWire session: `npm run
-tauri dev`, bind an encoder to a running app via the UI, confirm it
-takes effect live; use MIDI learn to bind a second control and confirm
-turning the physical knob during learn does **not** change any volume;
-sweep the fader during learn and confirm the UI doesn't lag; hold an
-encoder-push to assign the focused app while the UI is open and confirm
-the UI updates from `config_changed` without a manual refresh; restart
-the daemon and confirm both bindings persisted; confirm the tray's
-"Configure…" reopens the window after closing it, with the daemon and
-tray icon both still alive throughout.
+**By hand, with the physical X-Touch Mini and a live PipeWire session —
+still open, needs a person at the keyboard:**
+
+- [ ] Bind an encoder to a running app by clicking through the visual
+      panel and the binding editor; confirm it takes effect live without
+      restarting either process.
+- [ ] Click "Learn," turn or press the physical control you mean, and
+      confirm the UI selects the right control **and that its normal
+      behavior (e.g. changing a volume) did not fire** while learning.
+- [ ] Sweep the fader during learn and confirm the UI doesn't lag or
+      flood (the ~404-message-per-sweep burst the 30ms throttle exists
+      for).
+- [ ] Confirm the panel's live state (ring/LED mirroring) keeps updating
+      normally while learn is armed — learn suppresses dispatch, not
+      state reporting.
+- [ ] Long-press an encoder-push to assign the focused app while the UI
+      is open; confirm the UI updates from `config_changed` without a
+      manual refresh.
+- [ ] Restart the daemon; confirm bindings and profiles created in the UI
+      persisted.
+- [ ] Confirm the tray's "Configure…" reopens the window after closing
+      it, with the daemon and tray icon both still alive throughout.
 
 ## Risks & open questions
 

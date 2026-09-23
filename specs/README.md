@@ -29,7 +29,7 @@ milestones/   M01-M12: one file per unit of work, in dependency order.
 | [M04](milestones/M04-mapping-engine-daemon.md) | Mapping engine & daemon | Done | M02, M03 |
 | [M05](milestones/M05-led-feedback.md) | LED feedback | Done | M04 |
 | [M06](milestones/M06-focus-tracking.md) | Focus tracking | Done | M04 |
-| [M07](milestones/M07-config-ui.md) | Config UI | In progress | M04 |
+| [M07](milestones/M07-config-ui.md) | Config UI | Done (hand verification with hardware still open) | M04 |
 | [M08](milestones/M08-layers-groups-scenes.md) | Layers, groups, scenes | Not started | M04, M07 |
 | [M09](milestones/M09-media-transport-mpris.md) | Media transport (MPRIS) | Not started | M04 |
 | [M10](milestones/M10-spotify-web-api.md) | Spotify Web API | Not started | M09 |
