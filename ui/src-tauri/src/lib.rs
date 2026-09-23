@@ -12,9 +12,23 @@
 mod commands;
 mod error;
 mod socket;
+mod tray;
+
+use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
+        // Without this, launching the app a second time (e.g. clicking
+        // its .desktop entry while it's already hidden to the tray)
+        // spawns a second process and a second tray icon rather than
+        // showing the existing window.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             commands::daemon_status,
             commands::get_config,
@@ -25,6 +39,11 @@ pub fn run() {
             commands::start_learn,
             commands::cancel_learn,
         ])
+        .setup(|app| {
+            tray::build(app)?;
+            Ok(())
+        })
+        .on_window_event(tray::window_event)
         .run(tauri::generate_context!())
         .expect("error while running knobd-ui");
 }
