@@ -1,0 +1,59 @@
+{
+  "kinds": [
+    {
+      "kind": "encoder",
+      "minIndex": 1,
+      "maxIndex": 8,
+      "hasLed": true,
+      "gestures": [
+        "turn"
+      ]
+    },
+    {
+      "kind": "encoder_push",
+      "minIndex": 1,
+      "maxIndex": 8,
+      "hasLed": false,
+      "gestures": [
+        "press",
+        "hold",
+        "release",
+        "double_press"
+      ]
+    },
+    {
+      "kind": "button",
+      "minIndex": 1,
+      "maxIndex": 16,
+      "hasLed": true,
+      "gestures": [
+        "press",
+        "hold",
+        "release",
+        "double_press"
+      ]
+    },
+    {
+      "kind": "side_button",
+      "minIndex": 1,
+      "maxIndex": 2,
+      "hasLed": true,
+      "gestures": [
+        "press",
+        "hold",
+        "release",
+        "double_press"
+      ]
+    },
+    {
+      "kind": "fader",
+      "minIndex": 1,
+      "maxIndex": 1,
+      "hasLed": false,
+      "gestures": [
+        "move"
+      ]
+    }
+  ],
+  "ringPositions": 11
+}

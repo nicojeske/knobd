@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import styles from "./App.module.css";
 import { StatusBar } from "./components/common/StatusBar";
+import { Panel } from "./components/panel/Panel";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { PlaceholderView } from "./components/views/PlaceholderView";
 import { cx } from "./lib/cx";
@@ -21,12 +22,7 @@ const VIEW_LABELS: Record<View, string> = {
 function ViewContent({ view }: { view: View }) {
   switch (view) {
     case "panel":
-      return (
-        <PlaceholderView
-          title="Panel"
-          note="The visual X-Touch Mini panel and binding editor land in a later commit of this milestone."
-        />
-      );
+      return <Panel />;
     case "apps":
       return (
         <PlaceholderView
@@ -42,7 +38,7 @@ function ViewContent({ view }: { view: View }) {
 }
 
 export function App() {
-  const [view, setView] = useState<View>("diagnostics");
+  const [view, setView] = useState<View>("panel");
 
   return (
     <ConnectionProvider>

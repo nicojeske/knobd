@@ -12,6 +12,11 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    // Lets device-layout.json be imported directly with full literal-type
+    // inference (index ranges as number literals, gesture arrays as
+    // string-literal tuples) -- see src/types/device-layout.json and
+    // device/layout.ts.
+    "resolveJsonModule": true,
 
     "strict": true,
     "noUnusedLocals": true,

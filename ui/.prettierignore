@@ -3,7 +3,7 @@
 # check in CI.
 src/types/config.ts
 src/types/api.ts
-src/types/device-layout.ts
+src/types/device-layout.json
 
 dist/
 src-tauri/target/

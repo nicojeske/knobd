@@ -37,6 +37,12 @@ export default defineConfig([
     rules: {
       ...reactHooks.configs.recommended.rules,
       "@typescript-eslint/switch-exhaustiveness-check": "error",
+      // Numbers in template literals are unambiguous (`${index}` reads
+      // exactly like String(index)) and this codebase uses them
+      // constantly for control indices/labels -- strictTypeChecked's
+      // default disallows them, which would mean spelling out
+      // String(...) at every one of those call sites for no real gain.
+      "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
     },
   },
 ]);
