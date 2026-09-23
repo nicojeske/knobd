@@ -133,6 +133,75 @@
         }
       }
     },
+    "/learn": {
+      "delete": {
+        "operationId": "stopLearn",
+        "summary": "Disarm MIDI learn",
+        "description": "Disarms learn mode if armed; a no-op otherwise.",
+        "responses": {
+          "204": {
+            "description": "Disarmed (or already inactive)."
+          },
+          "503": {
+            "description": "No learn controller is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "startLearn",
+        "summary": "Arm MIDI learn",
+        "description": "Arms learn mode: the next physical input is reported over GET /events as a learn_input event and NOT dispatched as an action. Disarms itself after the first captured input or the timeout, whichever comes first.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearnRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Learn mode armed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearnState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No learn controller is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/state": {
       "get": {
         "operationId": "getState",
@@ -1092,6 +1161,31 @@
           "layer"
         ]
       },
+      "LearnRequest": {
+        "properties": {
+          "timeoutMs": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LearnState": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "active"
+        ]
+      },
       "MediaSeekAction": {
         "properties": {
           "seekMs": {
@@ -1311,6 +1405,9 @@
           "profile": {
             "$ref": "#/components/schemas/ProfileState"
           },
+          "learn": {
+            "$ref": "#/components/schemas/LearnState"
+          },
           "controls": {
             "items": {
               "$ref": "#/components/schemas/ControlState"
@@ -1326,6 +1423,7 @@
           "audio",
           "focus",
           "profile",
+          "learn",
           "controls"
         ]
       },

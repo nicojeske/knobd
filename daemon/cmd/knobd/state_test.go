@@ -93,6 +93,23 @@ func TestSnapshotToState(t *testing.T) {
 	if c1.Resolved != nil {
 		t.Errorf("Controls[1].Resolved = %v, want nil", c1.Resolved)
 	}
+	if got.Learn.Active {
+		t.Error("Learn.Active = true, want false (snap.LearnUntil is the zero time.Time)")
+	}
+}
+
+func TestSnapshotToStateLearnActive(t *testing.T) {
+	learnUntil := time.Date(2026, 9, 22, 12, 0, 15, 0, time.UTC)
+	snap := engine.Snapshot{ActiveProfileID: "default", LearnUntil: learnUntil}
+
+	got := snapshotToState(snap, api.DeviceState{}, api.AudioState{}, false, time.Time{})
+
+	if !got.Learn.Active {
+		t.Fatal("Learn.Active = false, want true")
+	}
+	if got.Learn.ExpiresAt == nil || !got.Learn.ExpiresAt.Equal(learnUntil) {
+		t.Errorf("Learn.ExpiresAt = %v, want %v", got.Learn.ExpiresAt, learnUntil)
+	}
 }
 
 func TestSnapshotToStateEmptyControls(t *testing.T) {

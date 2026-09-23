@@ -61,6 +61,7 @@ type Options struct {
 	State        StateProvider
 	Audio        AudioProvider
 	Capabilities CapabilitiesProvider
+	Learn        LearnController
 	// Logger receives request lifecycle logging. Nil means slog.Default().
 	Logger *slog.Logger
 }
@@ -73,6 +74,7 @@ type Server struct {
 	state        StateProvider
 	audio        AudioProvider
 	capabilities CapabilitiesProvider
+	learn        LearnController
 	log          *slog.Logger
 }
 
@@ -88,6 +90,7 @@ func New(opts Options) *Server {
 		state:        opts.State,
 		audio:        opts.Audio,
 		capabilities: opts.Capabilities,
+		learn:        opts.Learn,
 		log:          log,
 	}
 	s.registerRoutes()
@@ -106,6 +109,8 @@ func (s *Server) handlers() map[string]http.HandlerFunc {
 		"getState":        s.handleGetState,
 		"getAudio":        s.handleGetAudio,
 		"getCapabilities": s.handleGetCapabilities,
+		"startLearn":      s.handleStartLearn,
+		"stopLearn":       s.handleStopLearn,
 	}
 }
 

@@ -20,6 +20,9 @@ type State struct {
 	Audio   AudioState   `json:"audio"`
 	Focus   FocusState   `json:"focus"`
 	Profile ProfileState `json:"profile"`
+	// Learn is MIDI learn's current status -- see LearnController and
+	// engine.Engine.SetLearnUntil.
+	Learn LearnState `json:"learn"`
 
 	// Controls lists only controls that currently do something -- one
 	// bound on the active layer (falling back to layer 0, same as

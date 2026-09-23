@@ -21,6 +21,8 @@ var componentTypes = map[string]any{
 	"State":         api.State{},
 	"AudioGraph":    api.AudioGraph{},
 	"Capabilities":  api.Capabilities{},
+	"LearnRequest":  api.LearnRequest{},
+	"LearnState":    api.LearnState{},
 	"ErrorResponse": api.ErrorResponse{},
 }
 

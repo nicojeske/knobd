@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/njeske/knobd/internal/model"
 )
@@ -125,6 +126,39 @@ func (s *Server) handleGetAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.log, http.StatusOK, graph)
+}
+
+func (s *Server) handleStartLearn(w http.ResponseWriter, r *http.Request) {
+	if s.learn == nil {
+		writeError(w, s.log, http.StatusServiceUnavailable, CodeUnavailable, errNoLearnController())
+		return
+	}
+
+	var req LearnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeError(w, s.log, http.StatusBadRequest, CodeInvalidJSON, fmt.Errorf("decode request body: %w", err))
+		return
+	}
+
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	state, err := s.learn.StartLearn(r.Context(), timeout)
+	if err != nil {
+		writeError(w, s.log, http.StatusInternalServerError, CodeInternal, err)
+		return
+	}
+	writeJSON(w, s.log, http.StatusOK, state)
+}
+
+func (s *Server) handleStopLearn(w http.ResponseWriter, r *http.Request) {
+	if s.learn == nil {
+		writeError(w, s.log, http.StatusServiceUnavailable, CodeUnavailable, errNoLearnController())
+		return
+	}
+	if err := s.learn.StopLearn(r.Context()); err != nil {
+		writeError(w, s.log, http.StatusInternalServerError, CodeInternal, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleGetCapabilities(w http.ResponseWriter, r *http.Request) {

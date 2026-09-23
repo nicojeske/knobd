@@ -89,5 +89,29 @@ func Routes() []Route {
 				{Status: 200, Schema: "Capabilities", Description: "The current capabilities."},
 			},
 		},
+		{
+			Method:      "POST",
+			Path:        "/learn",
+			OperationID: "startLearn",
+			Summary:     "Arm MIDI learn",
+			Description: "Arms learn mode: the next physical input is reported over GET /events as a learn_input event and NOT dispatched as an action. Disarms itself after the first captured input or the timeout, whichever comes first.",
+			RequestBody: "LearnRequest",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "LearnState", Description: "Learn mode armed."},
+				{Status: 400, Schema: "ErrorResponse", Description: "Malformed request body."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No learn controller is wired up."},
+			},
+		},
+		{
+			Method:      "DELETE",
+			Path:        "/learn",
+			OperationID: "stopLearn",
+			Summary:     "Disarm MIDI learn",
+			Description: "Disarms learn mode if armed; a no-op otherwise.",
+			Responses: []RouteResponse{
+				{Status: 204, Description: "Disarmed (or already inactive)."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No learn controller is wired up."},
+			},
+		},
 	}
 }

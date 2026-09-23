@@ -160,12 +160,19 @@ func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState ap
 		controls = append(controls, out)
 	}
 
+	var learn api.LearnState
+	if !snap.LearnUntil.IsZero() {
+		expiresAt := snap.LearnUntil
+		learn = api.LearnState{Active: true, ExpiresAt: &expiresAt}
+	}
+
 	return api.State{
 		Now:      now,
 		Device:   device,
 		Audio:    audioState,
 		Focus:    api.FocusState{Available: focusAvailable, ResourceClass: snap.Focused.ResourceClass},
 		Profile:  api.ProfileState{ActiveProfileID: snap.ActiveProfileID, ActiveLayer: snap.ActiveLayer},
+		Learn:    learn,
 		Controls: controls,
 	}
 }

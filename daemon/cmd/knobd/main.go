@@ -192,11 +192,13 @@ func runDaemon(args []string) error {
 	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
 	audioGraph := newAudioGraph(audioSup, store)
 	capabilities := newCapabilitiesProvider(registry)
+	learnCtl := newLearnController(eng)
 	srv := api.New(api.Options{
 		Config:       store,
 		State:        state,
 		Audio:        audioGraph,
 		Capabilities: capabilities,
+		Learn:        learnCtl,
 		Logger:       logger,
 	})
 

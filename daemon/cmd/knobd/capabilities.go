@@ -27,8 +27,8 @@ func newCapabilitiesProvider(registry registryActionTypes) *capabilitiesProvider
 // TargetGroup case is a stub that always errors until M08 does group
 // resolution (see daemon/internal/engine/errors.go). Every other
 // model.TargetKinds() entry resolves today. Features.Layers and
-// Features.Scenes are also M08's; Features.Learn is true once this
-// daemon's learn-mode wiring exists (see cmd/knobd/learn.go).
+// Features.Scenes are also M08's; Features.Learn is true now that
+// POST/DELETE /learn are wired up (see cmd/knobd/learn.go).
 func (c *capabilitiesProvider) Capabilities() api.Capabilities {
 	var targetKinds []model.TargetKind
 	for _, k := range model.TargetKinds() {
@@ -44,7 +44,7 @@ func (c *capabilitiesProvider) Capabilities() api.Capabilities {
 		Features: api.Features{
 			Layers: false,
 			Scenes: false,
-			Learn:  false,
+			Learn:  true,
 		},
 	}
 }

@@ -31,6 +31,10 @@ func errNoCapabilitiesProvider() error {
 	return fmt.Errorf("api: this server has no CapabilitiesProvider configured")
 }
 
+func errNoLearnController() error {
+	return fmt.Errorf("api: this server has no LearnController configured")
+}
+
 // ErrorCode is the machine-readable half of ErrorResponse, so a client
 // can distinguish "you sent something invalid" from "my disk is full"
 // without string-matching Message.
