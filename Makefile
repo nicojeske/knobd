@@ -1,16 +1,32 @@
-.PHONY: build test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons ui-codegen ui-test ui-lint ui-build
+.PHONY: build release check-static test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons ui-codegen ui-test ui-lint ui-build
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
 
-# Where install-user puts things. Matches packaging/systemd/knobd.service's
-# hardcoded ExecStart=%h/.local/bin/knobd -- a non-default PREFIX needs that
-# line edited too (see the README); real templating is M12's job.
+# Where install-user puts things. The systemd unit's ExecStart is
+# rewritten to $(PREFIX)/bin/knobd at install time (see install-user
+# below); packaging/arch's PKGBUILD installs to /usr/bin instead and
+# ships the unit unmodified.
 PREFIX  ?= $(HOME)/.local
 UNITDIR ?= $(HOME)/.config/systemd/user
 
 build: ## Build the daemon binary
 	cd $(DAEMON_DIR) && go build -o knobd ./cmd/knobd
+
+release: ## Build a static, stripped release binary (ADR 0001: no CGo)
+	cd $(DAEMON_DIR) && CGO_ENABLED=0 go build -trimpath -mod=readonly -ldflags "-s -w" -o knobd ./cmd/knobd
+
+check-static: release ## Fail unless the release binary is statically linked
+	@if ldd $(BIN) >/dev/null 2>&1; then \
+		echo "$(BIN) is dynamically linked:"; \
+		ldd $(BIN); \
+		exit 1; \
+	else \
+		echo "$(BIN): not a dynamic executable (static, per ADR 0001)"; \
+	fi
+# ldd exits nonzero and prints "not a dynamic executable" for a static
+# binary; it exits 0 and lists shared objects for a dynamic one -- the
+# condition above relies on that exit code, not the printed text.
 
 test: ## Run daemon unit tests
 	cd $(DAEMON_DIR) && go test ./...

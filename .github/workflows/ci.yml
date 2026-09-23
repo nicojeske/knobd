@@ -24,6 +24,8 @@ jobs:
         run: cd daemon && go test ./...
       - name: go build
         run: cd daemon && go build ./...
+      - name: release binary is statically linked
+        run: make check-static
       - name: schemas up to date
         run: |
           make schema
