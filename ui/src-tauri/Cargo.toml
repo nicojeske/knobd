@@ -14,11 +14,24 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# tauri::async_runtime IS a tokio runtime (Tauri sets one up internally
+# unless told otherwise), so this is not a second runtime -- see
+# socket.rs's doc comment. Only the features socket.rs and events.rs
+# actually use: a unix-domain client connection, the sync primitives
+# events.rs's reconnect loop needs, and timers for backoff/coalescing.
+tokio = { version = "1", features = ["net", "io-util", "sync", "time"] }
+# A hand-rolled client over hyper's connection API, not hyperlocal: one
+# socket at one path needs neither hyperlocal's pooling nor its URI
+# routing -- see socket.rs.
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+thiserror = "2"
 
-# TODO(M07): add whatever unix-socket HTTP client we end up proxying
-# through to knobd's api package (see ../src/api/client.ts) — likely
-# `hyper` + `hyperlocal`, or a thin custom client, once
-# daemon/internal/api actually serves something to talk to.
+[dev-dependencies]
+# Only for #[tokio::test]; dev-dependency features don't unify into the
+# release build graph under the (default, edition-2021) v2 resolver.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [lib]
 name = "knobd_ui_lib"
