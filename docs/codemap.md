@@ -274,7 +274,7 @@ func TestAudioGraphDevicesCarryRefAndDefault(t *testing.T)
 func TestAudioGraphDisplayNameFallback(t *testing.T)
 func TestAudioGraphMatcherIDs(t *testing.T)
 func TestAudioGraphRawPropsAndBinaryFallback(t *testing.T)
-func TestCapabilitiesExcludesGroupTargetKind(t *testing.T)
+func TestCapabilitiesIncludesGroupTargetKind(t *testing.T)
 func TestCapabilitiesReflectsRegistry(t *testing.T)
 func TestConfigStoreOnChangedFiresOnceOnSuccess(t *testing.T)
 func TestConfigStoreOnChangedNotCalledOnFailure(t *testing.T)
@@ -477,7 +477,65 @@ type Invocation struct {
 	// Target is the action's configured target, carried for error
 	// messages only.
 	Target model.Target
+
+	// Scene is the resolved model.Scene a SceneApplyAction/
+	// SceneSaveAction names, and SceneRefs is engine's dispatch-time
+	// resolution of each of Scene.Entries' Target, one slice per entry
+	// in the same order -- SceneHandlers must use SceneRefs[i] for
+	// Scene.Entries[i], never re-resolve. Both are nil for every other
+	// action type.
+	Scene     *model.Scene
+	SceneRefs [][]audio.Ref
+
+	// Others are every currently-known playback stream not already in
+	// Refs, resolved by engine at dispatch time for
+	// AudioSoloToggleAction/AudioDuckHoldAction -- the "everything else"
+	// those two actions mute/duck. Nil for every other action type.
+	Others []audio.Ref
 }
+```
+
+### `MixHandlers` (struct)
+
+MixHandlers implements model.ActionAudioSoloToggle/
+ActionAudioDuckHold. Both read/write through VolumeHandlers' shared
+cache, so a mix change gets the same LED feedback as any other
+volume/mute write.
+
+```go
+type MixHandlers struct {
+	vol  *VolumeHandlers
+	opts MixOptions
+
+	currentSolo *soloSession
+	ducks       map[model.Control]*duckSession
+}
+```
+
+methods:
+
+```go
+func (h *MixHandlers) Register(r *Registry)
+func (h *MixHandlers) executeDuck(ctx context.Context, inv Invocation) error
+func (h *MixHandlers) executeSolo(ctx context.Context, inv Invocation) error
+func (h *MixHandlers) restoreSolo(ctx context.Context, s *soloSession) error
+```
+
+### `MixOptions` (struct)
+
+MixOptions configures MixHandlers. The zero value is sane defaults.
+
+```go
+type MixOptions struct {
+	// Logger receives clamp/skip diagnostics. Nil means slog.Default().
+	Logger *slog.Logger
+}
+```
+
+methods:
+
+```go
+func (o MixOptions) logger() *slog.Logger
 ```
 
 ### `Registry` (struct)
@@ -497,6 +555,49 @@ methods:
 func (r *Registry) ActionTypes() []model.ActionType
 func (r *Registry) Execute(ctx context.Context, inv Invocation) error
 func (r *Registry) Register(actionType model.ActionType, h Handler)
+```
+
+### `SceneHandlers` (struct)
+
+SceneHandlers implements model.ActionSceneApply/ActionSceneSave.
+engine resolves each entry's Target at dispatch time (see
+Invocation.Scene/SceneRefs' doc comment) since Target resolution
+needs the config's AppMatchers/AppGroups and the live stream graph,
+both of which live in engine, not here.
+
+```go
+type SceneHandlers struct {
+	vol   *VolumeHandlers
+	store ConfigMutator
+	opts  SceneOptions
+}
+```
+
+methods:
+
+```go
+func (h *SceneHandlers) Register(r *Registry)
+func (h *SceneHandlers) executeApply(ctx context.Context, inv Invocation) error
+func (h *SceneHandlers) executeSave(ctx context.Context, inv Invocation) error
+```
+
+### `SceneOptions` (struct)
+
+SceneOptions configures SceneHandlers. The zero value is sane
+defaults.
+
+```go
+type SceneOptions struct {
+	// Logger receives per-entry resolution/clamp diagnostics. Nil means
+	// slog.Default().
+	Logger *slog.Logger
+}
+```
+
+methods:
+
+```go
+func (o SceneOptions) logger() *slog.Logger
 ```
 
 ### `VolumeHandlers` (struct)
@@ -528,6 +629,7 @@ func (v *VolumeHandlers) executeMuteToggle(ctx context.Context, inv Invocation) 
 func (v *VolumeHandlers) executeSet(ctx context.Context, inv Invocation) error
 func (v *VolumeHandlers) getCached(ctx context.Context, ref audio.Ref) (audio.VolumeState, error)
 func (v *VolumeHandlers) setCacheLocked(ref audio.Ref, st audio.VolumeState)
+func (v *VolumeHandlers) writeMute(ctx context.Context, ref audio.Ref, muted bool) error
 func (v *VolumeHandlers) writeVolume(ctx context.Context, ref audio.Ref, percent float64) error
 ```
 
@@ -571,6 +673,19 @@ type cachedLevel struct {
 	state    audio.VolumeState
 	known    bool
 	inFlight int
+}
+```
+
+### `duckSession` (struct)
+
+duckSession is one control's currently-active duck-while-held. prior
+holds only the refs it actually lowered (a ref already at or below
+DuckPercent when the hold started is left alone and so isn't
+recorded here -- see executeDuck).
+
+```go
+type duckSession struct {
+	prior map[audio.Ref]float64
 }
 ```
 
@@ -622,6 +737,21 @@ methods:
 func (h *fakeHandler) Execute(_ context.Context, inv Invocation) error
 ```
 
+### `soloSession` (struct)
+
+soloSession is the one currently-active solo (see MixHandlers'
+doc comment: only one can be active at a time). prior holds every
+ref solo touched -- both the muted "everything else" and the
+unmuted target -- so a second press can restore each one exactly,
+not just unmute everything.
+
+```go
+type soloSession struct {
+	targetRefs map[audio.Ref]bool
+	prior      map[audio.Ref]bool
+}
+```
+
 ### `HandlerFunc`
 
 HandlerFunc adapts a plain function to Handler, the way
@@ -653,11 +783,25 @@ func TestAssignStepPercentDoesNotInheritFromReplacedBinding(t *testing.T)
 func TestAssignStepPercentPrecedence(t *testing.T)
 func TestAssignUnnameableAppInfoErrorsWithNoSetConfig(t *testing.T)
 func TestAssignWrongControlKindErrorsWithNoSetConfig(t *testing.T)
+func TestDuckIndependentPerControl(t *testing.T)
+func TestDuckLowersOthersToPercentAndRestoresExactLevelsOnRelease(t *testing.T)
+func TestDuckReleaseWithNoActiveSessionIsNoop(t *testing.T)
+func TestDuckRepeatHoldWithNoInterveningReleaseIsNoop(t *testing.T)
+func TestDuckWrongActionTypeErrors(t *testing.T)
 func TestRegistryDispatchesByActionType(t *testing.T)
 func TestRegistryDispatchesToRegisteredHandler(t *testing.T)
 func TestRegistryNilActionErrors(t *testing.T)
 func TestRegistryPropagatesHandlerError(t *testing.T)
 func TestRegistryUnregisteredActionErrors(t *testing.T)
+func TestSceneApplyRestoresLevelsAndMuteAcrossEntries(t *testing.T)
+func TestSceneApplySkipsEntryThatDidNotResolve(t *testing.T)
+func TestSceneApplyWrongActionTypeErrors(t *testing.T)
+func TestSceneSaveUnknownSceneErrors(t *testing.T)
+func TestSceneSaveUpdatesOnlyExistingResolvedEntries(t *testing.T)
+func TestSoloMutesOthersAndRestoresMixedPriorStatesExactly(t *testing.T)
+func TestSoloSwitchingTargetRestoresOldBeforeSoloingNew(t *testing.T)
+func TestSoloToggleOffWithTargetGoneStillRestoresOthers(t *testing.T)
+func TestSoloWrongActionTypeErrors(t *testing.T)
 func TestVolumeAdjustCoalescingEquivalence(t *testing.T)
 func TestVolumeAdjustMultiRefIndependent(t *testing.T)
 func TestVolumeAdjustPropagatesBackendError(t *testing.T)
@@ -675,18 +819,21 @@ func applyAssignment(cfg model.Config, layer int, push model.Control, info focus
 func baseConfig() model.Config
 func encoder(index int) model.Control
 func findOrCreateMatcher(matchers []model.AppMatcher, tokens []string, displayName string) (id string, matcher model.AppMatcher, out []model.AppMatcher)
+func mapKeys(m map[audio.Ref]bool) []audio.Ref
 func matcherIDExists(matchers []model.AppMatcher, id string) bool
 func matcherOverlapsTokens(m model.AppMatcher, tokens []string) bool
 func mustGetVolume(t *testing.T, fb *audio.FakeBackend, ref audio.Ref) audio.VolumeState
 func newAssignHandlersFor(cfg model.Config, info focus.AppInfo, opts AssignOptions) (*AssignHandlers, *fakeConfigStore)
+func newSceneHandlersFor(fb *audio.FakeBackend, cfg model.Config) (*SceneHandlers, *fakeConfigStore)
 func push(index int) model.Control
+func refSetEqual(a, b []audio.Ref) bool
 func seedBackend(t *testing.T, refs map[audio.Ref]audio.VolumeState) *audio.FakeBackend
 func slugify(s string) string
 ```
 
 **consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`
 
-**tests:** `assign_test.go`, `registry_test.go`, `volume_test.go`
+**tests:** `assign_test.go`, `mix_test.go`, `registry_test.go`, `scene_test.go`, `volume_test.go`
 
 ## `internal/api`
 
@@ -972,7 +1119,7 @@ type Features struct {
 	// effectively runs on layer 0.
 	Layers bool `json:"layers"`
 	// Scenes is true once scene.apply/scene.save have registered
-	// handlers (M08).
+	// handlers.
 	Scenes bool `json:"scenes"`
 	// Learn is true once MIDI learn (POST/DELETE /learn) is wired up.
 	Learn bool `json:"learn"`
@@ -2516,7 +2663,10 @@ func (e *Engine) SetConfig(ctx context.Context, cfg model.Config) error
 func (e *Engine) SetLearnUntil(ctx context.Context, deadline time.Time) error
 func (e *Engine) Snapshot(ctx context.Context) (Snapshot, error)
 func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *resolver, layer int, learnUntil time.Time) Snapshot
-func (e *Engine) dispatchGesture(bindings *bindingIndex, res *resolver, layer int, g gesture, dispatchCh chan<- work)
+func (e *Engine) dispatchGesture(ctx context.Context, cfg model.Config, bindings *bindingIndex, res *resolver, layers *layerState, downLayer map[model.Control]int, g gesture, dispatchCh chan<- work, leds *ledState)
+func (e *Engine) dispatchResolvedAction(cfg model.Config, action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work)
+func (e *Engine) dispatchScene(cfg model.Config, action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work)
+func (e *Engine) dispatchWithOthers(action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work)
 func (e *Engine) enqueueDispatch(dispatchCh chan<- work, w work, what string)
 func (e *Engine) executeResync(ctx context.Context, out chan<- streamsResult)
 func (e *Engine) executeWork(ctx context.Context, w work, out chan<- streamsResult)
@@ -2574,9 +2724,10 @@ type activeBinding struct {
 
 bindingIndex is the dispatch-time view of the active profile's
 bindings, rebuilt whenever the config changes and never mutated
-afterward. Layer resolution — falling back to layer 0 when the active
-layer has no binding for a (control, gesture) — is already the shape
-M08 needs; M04 just always resolves against layer 0 (see engine.go).
+afterward. Layer resolution falls back to layer 0 when the active
+layer has no binding for a (control, gesture) -- layers overlay the
+base rather than replacing it (see engine.go's dispatchGesture and
+specs/milestones/M08-layers-groups-scenes.md's Design section).
 
 ```go
 type bindingIndex struct {
@@ -2586,6 +2737,11 @@ type bindingIndex struct {
 	// defer that control's plain presses (see gestureMachine's doc
 	// comment).
 	doubleBound map[model.Control]bool
+	// maxLayer is the highest Layer any binding in this profile lives
+	// on, 0 if none do. It is LayerCycleAction's default wrap-around
+	// bound when the action carries no explicit LayerOrder (see
+	// layerState.cycle).
+	maxLayer int
 }
 ```
 
@@ -2706,6 +2862,18 @@ func (m *gestureMachine) Tick(now time.Time) []gesture
 func (m *gestureMachine) handleUp(c model.Control, at time.Time) []gesture
 ```
 
+### `heldLayer` (struct)
+
+heldLayer is one momentary layer switch currently active, in the
+order its control went down.
+
+```go
+type heldLayer struct {
+	control model.Control
+	layer   int
+}
+```
+
 ### `inputRecorder` (struct)
 
 inputRecorder collects OnInput calls under a mutex: OnInput fires on
@@ -2727,6 +2895,31 @@ methods:
 func (r *inputRecorder) count() int
 func (r *inputRecorder) first() device.Event
 func (r *inputRecorder) record(ev device.Event)
+```
+
+### `layerState` (struct)
+
+layerState tracks which layer bindings currently resolve against: a
+latched base layer, overlaid by zero or more momentary holds. See
+model.LayerMomentaryAction/LayerLatchAction/LayerCycleAction's doc
+comments and specs/milestones/M08-layers-groups-scenes.md's Design
+section.
+
+```go
+type layerState struct {
+	latched int
+	held    []heldLayer
+}
+```
+
+methods:
+
+```go
+func (s *layerState) active() int
+func (s *layerState) cycle(order []int, maxLayer int)
+func (s *layerState) latch(layer int)
+func (s *layerState) popMomentary(c model.Control)
+func (s *layerState) pushMomentary(c model.Control, layer int)
 ```
 
 ### `learnRequest` (struct)
@@ -2858,6 +3051,11 @@ specs/milestones/M06-focus-tracking.md).
 ```go
 type resolver struct {
 	matchers map[string]model.AppMatcher
+	// groups backs resolveGroup: a TargetGroup unions resolveApp over
+	// every matcher the group names (see model.AppGroup's doc comment
+	// and specs/milestones/M08-layers-groups-scenes.md's Design
+	// section).
+	groups map[string]model.AppGroup
 
 	streams map[string]audio.Stream
 	sinks   []audio.Device
@@ -2893,6 +3091,7 @@ func (r *resolver) removeStream(id string)
 func (r *resolver) resolve(t model.Target) ([]audio.Ref, error)
 func (r *resolver) resolveApp(matcherID string) ([]audio.Ref, error)
 func (r *resolver) resolveFocused() ([]audio.Ref, error)
+func (r *resolver) resolveGroup(groupID string) ([]audio.Ref, error)
 func (r *resolver) setConfig(cfg model.Config)
 func (r *resolver) setFocused(info focus.AppInfo)
 func (r *resolver) setSinks(sinks []audio.Device)
@@ -2961,6 +3160,28 @@ func (c *testClock) drainResets()
 func (c *testClock) waitForReset(timeout time.Duration) bool
 ```
 
+### `testConfigStore` (struct)
+
+testConfigStore is a minimal actions.ConfigMutator for engine-level
+scene tests: SetConfig round-trips through the real engine (so a
+scene.save's persisted result is exactly what a subsequent Snapshot/
+dispatch sees), without cmd/knobd's disk-persistence layer.
+
+```go
+type testConfigStore struct {
+	mu  sync.Mutex
+	eng *Engine
+	cfg model.Config
+}
+```
+
+methods:
+
+```go
+func (s *testConfigStore) Config() model.Config
+func (s *testConfigStore) SetConfig(ctx context.Context, cfg model.Config) error
+```
+
 ### `testTimer` (struct)
 
 ```go
@@ -3005,11 +3226,14 @@ type work struct {
 **functions:**
 
 ```go
+func InlineActionTypes() []model.ActionType
 func TestBindingIndexDoubleBoundDerivation(t *testing.T)
 func TestBindingIndexDuplicateKeyLastWins(t *testing.T)
 func TestBindingIndexEmptyActiveProfile(t *testing.T)
 func TestBindingIndexInvalidBindingSkipped(t *testing.T)
 func TestBindingIndexLookupFallsBackToLayer0(t *testing.T)
+func TestBindingIndexMaxLayer(t *testing.T)
+func TestBindingIndexMaxLayerDefaultsToZero(t *testing.T)
 func TestEngineFlashControlIsANoopWhenRunIsNotConsuming(t *testing.T)
 func TestEngineFlashControlOverridesThenReverts(t *testing.T)
 func TestEngineLearnExpiresWithNoInput(t *testing.T)
@@ -3019,21 +3243,41 @@ func TestEngineLearnSuppressesDispatch(t *testing.T)
 func TestEngineRunAudioSubscriptionClosedIsFatal(t *testing.T)
 func TestEngineRunContextCancelReturnsNil(t *testing.T)
 func TestEngineRunDecodeErrorIsNonFatal(t *testing.T)
+func TestEngineRunDuckHoldRestoresOnReleaseWithNoExplicitReleaseBinding(t *testing.T)
 func TestEngineRunEncoderTurnAdjustsVolume(t *testing.T)
 func TestEngineRunFaderMoveSetsAbsoluteVolume(t *testing.T)
 func TestEngineRunFocusChangeUpdatesTargetFocusedRefs(t *testing.T)
+func TestEngineRunGroupBindingControlsEveryMatcherSimultaneously(t *testing.T)
 func TestEngineRunLEDButtonTracksMute(t *testing.T)
 func TestEngineRunLEDRateLimitingCollapsesBurst(t *testing.T)
 func TestEngineRunLEDRingTracksVolume(t *testing.T)
 func TestEngineRunLEDUnboundRingIsBlank(t *testing.T)
+func TestEngineRunLatchTogglesLayer(t *testing.T)
+func TestEngineRunLayerCycleAdvancesWithNoExplicitOrder(t *testing.T)
+func TestEngineRunMomentaryLayerSwitchesOnDownAndRevertsOnRelease(t *testing.T)
+func TestEngineRunMomentaryPinsGestureToDownTimeLayer(t *testing.T)
 func TestEngineRunPressVsHold(t *testing.T)
 func TestEngineRunRepaintLEDsForcesFullRewrite(t *testing.T)
+func TestEngineRunSceneApplyAndSaveEndToEnd(t *testing.T)
 func TestEngineRunSetConfigTakesEffect(t *testing.T)
+func TestEngineRunSoloTogglesEndToEnd(t *testing.T)
 func TestGestureMachineDoublePress(t *testing.T)
 func TestGestureMachineNextDeadline(t *testing.T)
 func TestGestureMachinePressVsHold(t *testing.T)
 func TestGestureMachineReset(t *testing.T)
 func TestGestureMachineTurnAndMove(t *testing.T)
+func TestLayerStateActiveDefaultsToZero(t *testing.T)
+func TestLayerStateCycleCurrentNotInOrderJumpsToFirst(t *testing.T)
+func TestLayerStateCycleWithExplicitOrder(t *testing.T)
+func TestLayerStateCycleWithNoOrderAndNoOtherLayersIsNoop(t *testing.T)
+func TestLayerStateCycleWithNoOrderStepsThroughMaxLayer(t *testing.T)
+func TestLayerStateLatchSwitchesBetweenLayers(t *testing.T)
+func TestLayerStateLatchTogglesBackToZero(t *testing.T)
+func TestLayerStateLatchUnderMomentaryDoesNotChangeActive(t *testing.T)
+func TestLayerStateMomentaryReleaseOutOfOrder(t *testing.T)
+func TestLayerStateMomentaryStacking(t *testing.T)
+func TestLayerStatePopMomentaryUnknownControlIsNoop(t *testing.T)
+func TestLayerStatePushMomentaryUnbalancedDownReplaces(t *testing.T)
 func TestResolverAllStreams(t *testing.T)
 func TestResolverAppByNodeNameOnly(t *testing.T)
 func TestResolverAppMultiStream(t *testing.T)
@@ -3044,7 +3288,9 @@ func TestResolverFocusedMatchesResourceClass(t *testing.T)
 func TestResolverFocusedMemoInvalidatedBySetFocusedChange(t *testing.T)
 func TestResolverFocusedMemoInvalidatedByStreamChanges(t *testing.T)
 func TestResolverFocusedWithNothingFocusedResolvesToNothing(t *testing.T)
-func TestResolverGroupUnsupported(t *testing.T)
+func TestResolverGroupUnionsMatchersAndDeduplicates(t *testing.T)
+func TestResolverGroupUnknownID(t *testing.T)
+func TestResolverGroupUnknownMatcherWithinGroup(t *testing.T)
 func TestResolverSinkAndSourceByName(t *testing.T)
 func buildLEDControls() []model.Control
 func buttonWrites(port *midi.FakePort, note byte) []midi.Message
@@ -3055,25 +3301,29 @@ func errNotImplemented(fn string) error
 func fillValue(percent float64) byte
 func flashUpdate(c model.Control) device.LEDUpdate
 func gestureEqual(a, b []gesture) bool
+func holdPaired(action model.Action) bool
 func learnTestConfig(enc1 model.Control) model.Config
 func ledButtonUpdate(c model.Control, vol *audio.VolumeState) device.LEDUpdate
 func ledOffUpdate(c model.Control) device.LEDUpdate
 func ledRingUpdate(c model.Control, vol *audio.VolumeState) device.LEDUpdate
 func mergeable(a, b work) bool
 func mustInject(t *testing.T, ctx context.Context, port *midi.FakePort, msg midi.Message)
+func newTestEngineWithScenes(cfg model.Config, clk *testClock) (*Engine, *midi.FakePort, *audio.FakeBackend, *testConfigStore)
+func othersExcluding(all, exclude []audio.Ref) []audio.Ref
 func refsEqual(a, b []audio.Ref) bool
 func ringCCForTest(index int) (byte, bool)
 func ringWrites(port *midi.FakePort, encoderIndex int) []midi.Message
 func runEngine(t *testing.T, e *Engine, ctx context.Context) <-chan error
+func sceneByID(cfg model.Config, id string) *model.Scene
 func seedResolver(t *testing.T, r *resolver)
 func streamRefs(streams []audio.Stream) []audio.Ref
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool)
 func waitForResolved(t *testing.T, e *Engine, control model.Control, gesture model.Gesture)
 ```
 
-**consts/vars:** `DefaultFlashDuration`, `DefaultLearnTimeout`, `DoublePressWindow`, `HoldThreshold`, `MaxLearnTimeout`, `dispatchQueueDepth`, `enc1`, `errAudioSubscriptionClosed`, `errTargetUnsupported`, `ledControls`, `ledFlushInterval`, `push1`, `side1`, `testHold`, `testWindow`
+**consts/vars:** `DefaultFlashDuration`, `DefaultLearnTimeout`, `DoublePressWindow`, `HoldThreshold`, `MaxLearnTimeout`, `dispatchQueueDepth`, `enc1`, `errAudioSubscriptionClosed`, `ledControls`, `ledFlushInterval`, `push1`, `side1`, `testHold`, `testWindow`
 
-**tests:** `bindings_test.go`, `clock_test.go`, `engine_test.go`, `gesture_test.go`, `learn_test.go`, `led_test.go`, `resolver_test.go`
+**tests:** `bindings_test.go`, `clock_test.go`, `engine_test.go`, `gesture_test.go`, `layers_test.go`, `learn_test.go`, `led_test.go`, `resolver_test.go`
 
 **testdata used:** `testdata/pipewire/pw-dump-sample.json`
 
@@ -4309,6 +4559,7 @@ type TargetKind string
 ```go
 func ControlIndexRange(k ControlKind) (min, max int, ok bool)
 func EncodeAction(a Action) ([]byte, error)
+func SceneRefOf(a Action) (string, bool)
 func TestActionEnvelopeShape(t *testing.T)
 func TestActionRegistryComplete(t *testing.T)
 func TestActionTypesSortedAndComplete(t *testing.T)
@@ -4335,7 +4586,6 @@ func TestGesturesComplete(t *testing.T)
 func TestMediaCommandsComplete(t *testing.T)
 func TestTargetKindsComplete(t *testing.T)
 func TestTargetValidate(t *testing.T)
-func sceneRefOf(a Action) (string, bool)
 ```
 
 **consts/vars:** `CurrentSchemaVersion`, `actionRegistry`
