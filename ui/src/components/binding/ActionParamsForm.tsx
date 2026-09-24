@@ -4,6 +4,7 @@ import { ACTION_SPECS, type ActionType, type FieldSpec, type ParamsOf } from "..
 import { clearField, parseOptionalNumber, setField } from "../../config/fields";
 import { useConfig } from "../../state/ConfigContext";
 import { useConnection } from "../../state/ConnectionContext";
+import { useSpotifyDevices, useSpotifyPlaylists } from "../../state/useSpotify";
 import type { Target } from "../../types/config";
 import styles from "./Field.module.css";
 import { TargetField } from "./TargetField";
@@ -188,6 +189,53 @@ function FieldRow<P extends object>({
         />
       );
     }
+    case "playlist": {
+      const raw = params[field.key];
+      const value = typeof raw === "string" ? raw : "";
+      return (
+        <PlaylistFieldRow
+          label={field.label}
+          value={value}
+          editableOnly={field.editableOnly ?? false}
+          onChange={(next) => {
+            onChange(setField(params, field.key, next as P[typeof field.key]));
+          }}
+        />
+      );
+    }
+    case "device": {
+      const raw = params[field.key];
+      const value = typeof raw === "string" ? raw : "";
+      return (
+        <DeviceFieldRow
+          label={field.label}
+          value={value}
+          onChange={(next) => {
+            onChange(setField(params, field.key, next as P[typeof field.key]));
+          }}
+        />
+      );
+    }
+    case "boolean": {
+      const raw = params[field.key];
+      const value = raw === true;
+      return (
+        <div className={styles.row}>
+          <label>{field.label}</label>
+          <input
+            type="checkbox"
+            checked={value}
+            onChange={(e) => {
+              onChange(
+                e.target.checked
+                  ? setField(params, field.key, true as P[typeof field.key])
+                  : clearField(params, field.key),
+              );
+            }}
+          />
+        </div>
+      );
+    }
   }
 }
 
@@ -239,6 +287,118 @@ function PlayerFieldRow({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** PlaylistFieldRow picks a Spotify playlist by id from
+ * GET /spotify/playlists (empty until connected -- see
+ * useSpotifyPlaylists's own doc comment), falling back to free text
+ * (accepting a playlist id, a spotify:playlist:... uri, or an
+ * open.spotify.com/playlist/... link -- the daemon normalizes any of
+ * those, see daemon/internal/spotify.ParseID) the same "known option, or
+ * type it yourself" shape TargetField/SceneFieldRow use. editableOnly
+ * narrows the picker to playlists the authorized user can add/remove
+ * items from (add_to_playlist/remove_from_playlist); start_playlist
+ * leaves it false, since starting playback works on any playlist. */
+function PlaylistFieldRow({
+  label,
+  value,
+  editableOnly,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  editableOnly: boolean;
+  onChange: (next: string) => void;
+}) {
+  const { playlists, loading, error } = useSpotifyPlaylists();
+  const options = (playlists ?? []).filter((p) => !editableOnly || p.editable);
+  const knownOption = value === "" || options.some((p) => p.id === value);
+
+  return (
+    <div className={styles.row}>
+      <label>{label}</label>
+      {knownOption && playlists !== undefined ? (
+        <select
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        >
+          <option value="" disabled>
+            {options.length === 0 ? "(no playlists available)" : "Choose a playlist…"}
+          </option>
+          {options.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name || p.id}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          placeholder="playlist id, uri, or open.spotify.com link"
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        />
+      )}
+      {loading ? <span className={styles.unit}>Loading…</span> : null}
+      {error ? <div className={styles.error}>{error}</div> : null}
+    </div>
+  );
+}
+
+/** DeviceFieldRow picks a Spotify Connect device by name from
+ * GET /spotify/devices -- model.SpotifyTransferPlaybackAction.DeviceName
+ * matches by name (case-insensitively), not id, since device ids aren't
+ * stable across client restarts (see that field's own doc comment). */
+function DeviceFieldRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const { devices, loading, error } = useSpotifyDevices();
+  const knownOption = value === "" || (devices ?? []).some((d) => d.name === value);
+
+  return (
+    <div className={styles.row}>
+      <label>{label}</label>
+      {knownOption && devices !== undefined ? (
+        <select
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        >
+          <option value="" disabled>
+            {devices.length === 0 ? "(no devices available)" : "Choose a device…"}
+          </option>
+          {devices.map((d) => (
+            <option key={d.id} value={d.name}>
+              {d.name}
+              {d.active ? " (active)" : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          placeholder="device name"
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        />
+      )}
+      {loading ? <span className={styles.unit}>Loading…</span> : null}
+      {error ? <div className={styles.error}>{error}</div> : null}
     </div>
   );
 }

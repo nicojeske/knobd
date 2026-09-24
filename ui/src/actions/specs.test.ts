@@ -49,7 +49,18 @@ describe("ACTION_SPECS", () => {
   });
 
   it("has a non-empty label and a valid group for every action", () => {
-    const validGroups = new Set(["audio", "knob", "layer", "media", "mic", "scene", "shell", "sink", "volume"]);
+    const validGroups = new Set([
+      "audio",
+      "knob",
+      "layer",
+      "media",
+      "mic",
+      "scene",
+      "shell",
+      "sink",
+      "spotify",
+      "volume",
+    ]);
     for (const type of actionTypes()) {
       const spec = ACTION_SPECS[type];
       expect(spec.label.length).toBeGreaterThan(0);

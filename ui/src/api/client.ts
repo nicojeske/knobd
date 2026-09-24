@@ -100,3 +100,27 @@ export function startLearn(timeoutMs?: number): Promise<LearnState> {
 export function cancelLearn(): Promise<void> {
   return invoke("cancel_learn").then(() => undefined);
 }
+
+export type SpotifyLoginResponse = components["schemas"]["SpotifyLoginResponse"];
+export type SpotifyPlaylist = components["schemas"]["SpotifyPlaylist"];
+export type SpotifyDevice = components["schemas"]["SpotifyDevice"];
+
+/** spotifyLogin starts (or restarts) the OAuth PKCE flow; the daemon
+ * also makes a best-effort attempt to open the returned authorizeUrl in
+ * a browser itself (see spotifyProvider.xdgOpen in cmd/knobd), so this
+ * URL is mainly a fallback for the Spotify tab to show/copy. */
+export function spotifyLogin(): Promise<SpotifyLoginResponse> {
+  return invoke<SpotifyLoginResponse>("spotify_login");
+}
+
+export function spotifyLogout(): Promise<void> {
+  return invoke("spotify_logout").then(() => undefined);
+}
+
+export function spotifyPlaylists(): Promise<SpotifyPlaylist[]> {
+  return invoke<SpotifyPlaylist[]>("spotify_playlists");
+}
+
+export function spotifyDevices(): Promise<SpotifyDevice[]> {
+  return invoke<SpotifyDevice[]>("spotify_devices");
+}

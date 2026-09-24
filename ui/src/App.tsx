@@ -8,13 +8,14 @@ import { MediaView } from "./components/media/MediaView";
 import { Panel } from "./components/panel/Panel";
 import { ProfilesView } from "./components/profiles/ProfilesView";
 import { ScenesView } from "./components/scenes/ScenesView";
+import { SpotifyView } from "./components/spotify/SpotifyView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { cx } from "./lib/cx";
 import { CapabilitiesProvider } from "./state/CapabilitiesContext";
 import { ConfigProvider, useConfig } from "./state/ConfigContext";
 import { ConnectionProvider } from "./state/ConnectionContext";
 
-const VIEWS = ["panel", "apps", "scenes", "media", "profiles", "diagnostics"] as const;
+const VIEWS = ["panel", "apps", "scenes", "media", "spotify", "profiles", "diagnostics"] as const;
 type View = (typeof VIEWS)[number];
 
 const VIEW_LABELS: Record<View, string> = {
@@ -22,6 +23,7 @@ const VIEW_LABELS: Record<View, string> = {
   apps: "Apps & Groups",
   scenes: "Scenes",
   media: "Media",
+  spotify: "Spotify",
   profiles: "Profiles",
   diagnostics: "Diagnostics",
 };
@@ -57,6 +59,8 @@ function ViewContent({ view }: { view: View }) {
       return <ScenesView />;
     case "media":
       return <MediaView />;
+    case "spotify":
+      return <SpotifyView />;
     case "profiles":
       return <ProfilesView />;
     case "diagnostics":

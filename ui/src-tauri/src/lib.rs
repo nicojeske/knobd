@@ -38,6 +38,10 @@ pub fn run() {
             commands::get_capabilities,
             commands::start_learn,
             commands::cancel_learn,
+            commands::spotify_login,
+            commands::spotify_logout,
+            commands::spotify_playlists,
+            commands::spotify_devices,
         ])
         .setup(|app| {
             tray::build(app)?;

@@ -90,3 +90,25 @@ pub async fn cancel_learn() -> Result<(), BridgeError> {
         .await
         .map(|_| ())
 }
+
+#[tauri::command]
+pub async fn spotify_login() -> Result<Value, BridgeError> {
+    socket::request(Method::POST, "/spotify/login", None).await
+}
+
+#[tauri::command]
+pub async fn spotify_logout() -> Result<(), BridgeError> {
+    socket::request(Method::DELETE, "/spotify/login", None)
+        .await
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub async fn spotify_playlists() -> Result<Value, BridgeError> {
+    socket::request(Method::GET, "/spotify/playlists", None).await
+}
+
+#[tauri::command]
+pub async fn spotify_devices() -> Result<Value, BridgeError> {
+    socket::request(Method::GET, "/spotify/devices", None).await
+}

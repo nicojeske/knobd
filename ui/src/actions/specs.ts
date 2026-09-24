@@ -16,7 +16,8 @@ import type { Action } from "../types/config";
 export type ActionType = Action["type"];
 export type ParamsOf<T extends ActionType> = Extract<Action, { type: T }>["params"];
 
-export type ActionGroup = "audio" | "knob" | "layer" | "media" | "mic" | "scene" | "shell" | "sink" | "volume";
+export type ActionGroup =
+  "audio" | "knob" | "layer" | "media" | "mic" | "scene" | "shell" | "sink" | "spotify" | "volume";
 
 interface FieldBase<P, K extends Extract<keyof P, string>> {
   key: K;
@@ -35,7 +36,10 @@ export type FieldSpec<P> = {
     | (FieldBase<P, K> & { kind: "stringList" })
     | (FieldBase<P, K> & { kind: "numberList" })
     | (FieldBase<P, K> & { kind: "scene" })
-    | (FieldBase<P, K> & { kind: "player" });
+    | (FieldBase<P, K> & { kind: "player" })
+    | (FieldBase<P, K> & { kind: "playlist"; editableOnly?: boolean })
+    | (FieldBase<P, K> & { kind: "device" })
+    | (FieldBase<P, K> & { kind: "boolean" });
 }[Extract<keyof P, string>];
 
 export interface ActionSpec<T extends ActionType> {
@@ -179,6 +183,47 @@ export const ACTION_SPECS: { readonly [T in ActionType]: ActionSpec<T> } = {
     group: "sink",
     defaults: () => ({ sinkNames: [] }),
     fields: [{ kind: "stringList", key: "sinkNames", label: "Sinks (in cycle order)" }],
+  },
+  "spotify.add_to_playlist": {
+    label: "Add to playlist",
+    group: "spotify",
+    defaults: () => ({ playlistId: "" }),
+    fields: [{ kind: "playlist", key: "playlistId", label: "Playlist", editableOnly: true }],
+  },
+  "spotify.like_toggle": {
+    label: "Like / unlike current track",
+    group: "spotify",
+    defaults: () => ({}),
+    fields: [],
+  },
+  "spotify.queue_track": {
+    label: "Queue a track",
+    group: "spotify",
+    defaults: () => ({ trackId: "" }),
+    fields: [
+      { kind: "text", key: "trackId", label: "Track", placeholder: "open.spotify.com/track/... or spotify:track:..." },
+    ],
+  },
+  "spotify.remove_from_playlist": {
+    label: "Remove from playlist",
+    group: "spotify",
+    defaults: () => ({ playlistId: "" }),
+    fields: [{ kind: "playlist", key: "playlistId", label: "Playlist", editableOnly: true }],
+  },
+  "spotify.start_playlist": {
+    label: "Start playlist",
+    group: "spotify",
+    defaults: () => ({ playlistId: "" }),
+    fields: [{ kind: "playlist", key: "playlistId", label: "Playlist" }],
+  },
+  "spotify.transfer_playback": {
+    label: "Transfer playback",
+    group: "spotify",
+    defaults: () => ({ deviceName: "" }),
+    fields: [
+      { kind: "device", key: "deviceName", label: "Device" },
+      { kind: "boolean", key: "play", label: "Resume playback on the new device" },
+    ],
   },
   "volume.adjust": {
     label: "Adjust volume",
