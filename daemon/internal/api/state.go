@@ -23,6 +23,9 @@ type State struct {
 	// Learn is MIDI learn's current status -- see LearnController and
 	// engine.Engine.SetLearnUntil.
 	Learn LearnState `json:"learn"`
+	// Media is MPRIS player discovery/selection status -- see
+	// media.Tracker (M09).
+	Media MediaState `json:"media"`
 
 	// Controls lists only controls that currently do something -- one
 	// bound on the active layer (falling back to layer 0, same as
@@ -74,6 +77,37 @@ type ControlState struct {
 	// graph; nil if Target is nil or currently resolves to nothing (the
 	// app it names isn't running).
 	Resolved *ResolvedTarget `json:"resolved,omitempty"`
+}
+
+// MediaState.Available is false until M09's media.New succeeds --
+// mirrors FocusState.Available's role: media.transport/media.seek/
+// media.target_cycle/media.now_playing don't resolve while it's false,
+// and this is how the UI explains that.
+type MediaState struct {
+	Available bool `json:"available"`
+	// Selected is the currently selected player's ref (see
+	// media.PlayerInfo.Ref), or "" if none is selected -- the same
+	// short form MediaTransportAction.PlayerRef/Config.Media.
+	// IgnorePlayers use, not the full MPRIS bus name.
+	Selected string        `json:"selected,omitempty"`
+	Players  []MediaPlayer `json:"players"`
+}
+
+// MediaPlayer is one currently-known MPRIS player, for the UI's Media
+// tab / player picker (ui/src/components/binding's PlayerField).
+type MediaPlayer struct {
+	// Ref is media.PlayerInfo.Ref -- what PlayerRef/IgnorePlayers name.
+	Ref      string `json:"ref"`
+	BusName  string `json:"busName"`
+	Identity string `json:"identity,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Artist   string `json:"artist,omitempty"`
+	CanSeek  bool   `json:"canSeek"`
+	// Ignored is true when Ref is in Config.Media.IgnorePlayers -- shown
+	// even though such a player never appears as Selected, so the Media
+	// tab can offer to un-ignore it.
+	Ignored bool `json:"ignored"`
 }
 
 // ResolvedTarget is what a ControlState's Target resolves to right now.

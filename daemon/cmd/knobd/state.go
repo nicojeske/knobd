@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/njeske/knobd/internal/api"
 	"github.com/njeske/knobd/internal/audio"
 	"github.com/njeske/knobd/internal/engine"
+	"github.com/njeske/knobd/internal/media"
 	"github.com/njeske/knobd/internal/midi"
 )
 
@@ -131,11 +133,24 @@ func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *a
 	}
 }
 
+// mediaTracker is the slice of *media.Tracker daemonState needs --
+// point-of-use, matching audioBackend/configProvider's own pattern in
+// this package.
+type mediaTracker interface {
+	Snapshot(ignore []string) (players []media.PlayerInfo, selected string)
+}
+
 // daemonState is cmd/knobd's api.StateProvider adapter.
 type daemonState struct {
 	eng            *engine.Engine
 	status         *connStatus
 	focusAvailable bool
+
+	media          mediaTracker
+	mediaAvailable bool
+	// mediaIgnore reads Config.Media.IgnorePlayers fresh on every State
+	// call, mirroring actions.MediaOptions.IgnorePlayers.
+	mediaIgnore func() []string
 }
 
 // State implements api.StateProvider.
@@ -145,14 +160,58 @@ func (d *daemonState) State(ctx context.Context) (api.State, error) {
 		return api.State{}, err
 	}
 	device, audioState := d.status.snapshot()
-	return snapshotToState(snap, device, audioState, d.focusAvailable, time.Now()), nil
+	mediaState := mediaStateOf(d.media, d.mediaAvailable, d.mediaIgnore)
+	return snapshotToState(snap, device, audioState, d.focusAvailable, mediaState, time.Now()), nil
+}
+
+// mediaStateOf builds api.MediaState from tracker's snapshot, listing
+// every currently-ignored ref too (even though it can never be
+// Selected) so the UI's Media tab can offer to un-ignore it -- ignore's
+// own entries are the only source of those, since a currently-not-
+// running ignored player has no PlayerInfo of its own to report.
+func mediaStateOf(tracker mediaTracker, available bool, ignoreFn func() []string) api.MediaState {
+	if !available || tracker == nil {
+		return api.MediaState{Available: false}
+	}
+	var ignore []string
+	if ignoreFn != nil {
+		ignore = ignoreFn()
+	}
+
+	players, selected := tracker.Snapshot(ignore)
+	seen := make(map[string]bool, len(players))
+	out := make([]api.MediaPlayer, 0, len(players)+len(ignore))
+	for _, p := range players {
+		seen[p.Ref()] = true
+		out = append(out, api.MediaPlayer{
+			Ref:      p.Ref(),
+			BusName:  p.BusName,
+			Identity: p.Identity,
+			Status:   string(p.Status),
+			Title:    p.Track.Title,
+			Artist:   strings.Join(p.Track.Artists, ", "),
+			CanSeek:  p.CanSeek,
+		})
+	}
+	// tracker.Snapshot already excludes every ignored ref (see
+	// Tracker.visible), so any ref in ignore not in seen is a player
+	// that's currently ignored but not otherwise represented -- list it
+	// anyway so the Media tab can offer to un-ignore it even while it
+	// isn't running.
+	for _, ref := range ignore {
+		if !seen[ref] {
+			out = append(out, api.MediaPlayer{Ref: ref, Ignored: true})
+		}
+	}
+
+	return api.MediaState{Available: true, Selected: selected, Players: out}
 }
 
 // snapshotToState is a pure translation from engine.Snapshot (plus the
 // connection status cmd/knobd tracks separately, since engine has no
 // reason to know about MIDI/audio connection lifecycle) to api.State.
 // Kept free of goroutines and I/O so it's table-testable on its own.
-func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState api.AudioState, focusAvailable bool, now time.Time) api.State {
+func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState api.AudioState, focusAvailable bool, mediaState api.MediaState, now time.Time) api.State {
 	controls := make([]api.ControlState, 0, len(snap.Controls))
 	for _, cs := range snap.Controls {
 		out := api.ControlState{
@@ -189,6 +248,7 @@ func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState ap
 		Focus:    api.FocusState{Available: focusAvailable, ResourceClass: snap.Focused.ResourceClass},
 		Profile:  api.ProfileState{ActiveProfileID: snap.ActiveProfileID, ActiveLayer: snap.ActiveLayer},
 		Learn:    learn,
+		Media:    mediaState,
 		Controls: controls,
 	}
 }

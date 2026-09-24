@@ -41,7 +41,7 @@ func TestSnapshotToState(t *testing.T) {
 	device := api.DeviceState{Connected: true, Name: "X-TOUCH MINI"}
 	audioState := api.AudioState{Connected: false, LastError: "connection refused"}
 
-	got := snapshotToState(snap, device, audioState, false, now)
+	got := snapshotToState(snap, device, audioState, false, api.MediaState{}, now)
 
 	if got.Now != now {
 		t.Errorf("Now = %v, want %v", got.Now, now)
@@ -102,7 +102,7 @@ func TestSnapshotToStateLearnActive(t *testing.T) {
 	learnUntil := time.Date(2026, 9, 22, 12, 0, 15, 0, time.UTC)
 	snap := engine.Snapshot{ActiveProfileID: "default", LearnUntil: learnUntil}
 
-	got := snapshotToState(snap, api.DeviceState{}, api.AudioState{}, false, time.Time{})
+	got := snapshotToState(snap, api.DeviceState{}, api.AudioState{}, false, api.MediaState{}, time.Time{})
 
 	if !got.Learn.Active {
 		t.Fatal("Learn.Active = false, want true")
@@ -113,7 +113,7 @@ func TestSnapshotToStateLearnActive(t *testing.T) {
 }
 
 func TestSnapshotToStateEmptyControls(t *testing.T) {
-	got := snapshotToState(engine.Snapshot{ActiveProfileID: "default"}, api.DeviceState{}, api.AudioState{}, true, time.Time{})
+	got := snapshotToState(engine.Snapshot{ActiveProfileID: "default"}, api.DeviceState{}, api.AudioState{}, true, api.MediaState{}, time.Time{})
 	if len(got.Controls) != 0 {
 		t.Errorf("Controls = %+v, want empty", got.Controls)
 	}

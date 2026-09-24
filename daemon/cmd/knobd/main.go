@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/godbus/dbus/v5"
+
 	"github.com/njeske/knobd/internal/actions"
 	"github.com/njeske/knobd/internal/api"
 	"github.com/njeske/knobd/internal/audio"
@@ -26,6 +28,7 @@ import (
 	"github.com/njeske/knobd/internal/device"
 	"github.com/njeske/knobd/internal/engine"
 	"github.com/njeske/knobd/internal/focus"
+	"github.com/njeske/knobd/internal/media"
 	"github.com/njeske/knobd/internal/midi"
 	"github.com/njeske/knobd/internal/model"
 )
@@ -157,6 +160,48 @@ func runDaemon(args []string) error {
 	// are consuming their own inputs.
 	var eng *engine.Engine
 	var hub *api.Hub
+
+	// media.New is best-effort in the same way focus.New is: no D-Bus
+	// session bus (or, later, a hung tracker) must never turn into a
+	// knobd startup failure -- see the comment above focus.New's call on
+	// why no backend at startup is fatal. mediaAvailable feeds
+	// api.MediaState.
+	//
+	// The session bus connection is dialed here, once, rather than
+	// inside media.New itself, so the same connection can also back
+	// mediaNotifier (org.freedesktop.Notifications lives on the same
+	// bus) without media.Backend needing to expose its *dbus.Conn.
+	mediaBackend := media.Unavailable()
+	mediaNotifier := media.UnavailableNotifier()
+	mediaAvailable := false
+	if conn, cerr := dbus.ConnectSessionBus(); cerr != nil {
+		logger.Warn("media transport unavailable; media.* actions will not resolve", "err", cerr)
+	} else if b, merr := media.New(ctx, media.Options{Logger: logger, Conn: conn}); merr != nil {
+		logger.Warn("media transport unavailable; media.* actions will not resolve", "err", merr)
+		conn.Close()
+	} else {
+		mediaBackend = b
+		mediaNotifier = media.NewNotifier(conn)
+		mediaAvailable = true
+		defer conn.Close()
+		defer b.Close()
+	}
+	mediaTrk, terr := media.NewTracker(ctx, mediaBackend, media.TrackerOptions{
+		Logger: logger,
+		OnChange: func() {
+			if hub != nil {
+				hub.NotifyStateDirty()
+			}
+		},
+	})
+	if terr != nil {
+		// media.NewTracker only fails if Watch itself errors, which
+		// Unavailable()'s Backend never does -- kept as a hard error
+		// rather than another Unavailable fallback since it would mean
+		// a real bug in media.New's returned Backend.
+		return fmt.Errorf("start media tracker: %w", terr)
+	}
+
 	volumeHandlers := actions.NewVolumeHandlers(audioSup, actions.VolumeOptions{
 		Logger: logger,
 		OnApplied: func(audio.Ref, audio.VolumeState) {
@@ -204,6 +249,11 @@ func runDaemon(args []string) error {
 	})
 	sceneHandlers := actions.NewSceneHandlers(volumeHandlers, store, actions.SceneOptions{Logger: logger})
 	mixHandlers := actions.NewMixHandlers(volumeHandlers, actions.MixOptions{Logger: logger})
+	ignorePlayers := func() []string { return store.Config().Media.IgnorePlayers }
+	mediaHandlers := actions.NewMediaHandlers(mediaTrk, mediaBackend, mediaNotifier, actions.MediaOptions{
+		Logger:        logger,
+		IgnorePlayers: ignorePlayers,
+	})
 	// Must run before the eng.Run goroutine below starts: Registry's map
 	// isn't safe to mutate concurrently with Execute, and every handler
 	// in this codebase is registered once at startup for that reason
@@ -212,9 +262,17 @@ func runDaemon(args []string) error {
 	assignHandlers.Register(registry)
 	sceneHandlers.Register(registry)
 	mixHandlers.Register(registry)
+	mediaHandlers.Register(registry)
 
 	status := &connStatus{}
-	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
+	state := &daemonState{
+		eng:            eng,
+		status:         status,
+		focusAvailable: focusAvailable,
+		media:          mediaTrk,
+		mediaAvailable: mediaAvailable,
+		mediaIgnore:    ignorePlayers,
+	}
 	// hub was forward-declared above so eng.Deps.OnStateChanged/OnInput
 	// could close over it; assign it now that state (its StateProvider)
 	// exists. See specs/adr/0004-ipc-over-unix-socket.md's Update (M07)

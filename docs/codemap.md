@@ -16,7 +16,7 @@ the live PipeWire sink/source/stream graph and its change events,
 them, and `knobd calibrate-leds` (M05) sends one raw LED MIDI message
 and exits — all four without the rest of the daemon.
 
-**imports:** `internal/actions`, `internal/api`, `internal/audio`, `internal/config`, `internal/device`, `internal/engine`, `internal/focus`, `internal/midi`, `internal/model`
+**imports:** `internal/actions`, `internal/api`, `internal/audio`, `internal/config`, `internal/device`, `internal/engine`, `internal/focus`, `internal/media`, `internal/midi`, `internal/model`
 
 ### `audioBackend` (interface)
 
@@ -58,6 +58,16 @@ point-of-use interface so it's testable without a real engine.
 
 ```go
 SetLearnUntil(ctx context.Context, deadline time.Time) error
+```
+
+### `mediaTracker` (interface)
+
+mediaTracker is the slice of *media.Tracker daemonState needs --
+point-of-use, matching audioBackend/configProvider's own pattern in
+this package.
+
+```go
+Snapshot(ignore []string) (players []media.PlayerInfo, selected string)
 ```
 
 ### `registryActionTypes` (interface)
@@ -182,6 +192,12 @@ type daemonState struct {
 	eng            *engine.Engine
 	status         *connStatus
 	focusAvailable bool
+
+	media          mediaTracker
+	mediaAvailable bool
+	// mediaIgnore reads Config.Media.IgnorePlayers fresh on every State
+	// call, mirroring actions.MediaOptions.IgnorePlayers.
+	mediaIgnore func() []string
 }
 ```
 
@@ -310,6 +326,7 @@ func formatStream(s audio.Stream) string
 func formatStreamProps(s *audio.Stream) string
 func learnInputFromEvent(ev device.Event) api.LearnInput
 func main()
+func mediaStateOf(tracker mediaTracker, available bool, ignoreFn func() []string) api.MediaState
 func parseArgs(argv []string) (cmd string, rest []string)
 func printEvent(codec device.Codec, msg midi.Message, downAt map[model.Control]time.Time, raw bool)
 func refString(s *audio.Stream) string
@@ -318,7 +335,7 @@ func runDaemon(args []string) error
 func runMonitor(args []string) error
 func runMonitorAudio(args []string) error
 func runMonitorFocus(args []string) error
-func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState api.AudioState, focusAvailable bool, now time.Time) api.State
+func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState api.AudioState, focusAvailable bool, mediaState api.MediaState, now time.Time) api.State
 func watchAudio(ctx context.Context, sup *audio.Supervisor) error
 func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *audio.Supervisor, status *connStatus, eng *engine.Engine, notify func(), log *slog.Logger)
 ```
@@ -357,7 +374,7 @@ milestone starts; see specs/reference/action-catalog.md for the full
 brainstormed list, most of which has no handler — or even a
 model.Action type — yet.
 
-**imports:** `internal/audio`, `internal/focus`, `internal/model`
+**imports:** `internal/audio`, `internal/focus`, `internal/media`, `internal/model`
 
 ### `ConfigMutator` (interface)
 
@@ -389,6 +406,32 @@ inv.Action, which they must type-assert themselves.
 
 ```go
 Execute(ctx context.Context, inv Invocation) error
+```
+
+### `MediaCommands` (interface)
+
+MediaCommands is the slice of media.Backend this handler needs to
+send commands -- discovery (Watch) belongs to media.Tracker, not
+here.
+
+```go
+PlayPause(busName string) error
+Next(busName string) error
+Previous(busName string) error
+Seek(busName string, offset time.Duration) error
+SetShuffle(busName string, shuffle bool) error
+SetLoopStatus(busName string, status string) error
+```
+
+### `MediaPlayers` (interface)
+
+MediaPlayers is the slice of media.Tracker this handler needs --
+point-of-use, so actions never imports the concrete *media.Tracker
+type's full surface.
+
+```go
+Resolve(ref string, ignore []string) (media.PlayerInfo, bool)
+Cycle(ignore []string) (media.PlayerInfo, bool)
 ```
 
 ### `AssignHandlers` (struct)
@@ -493,6 +536,61 @@ type Invocation struct {
 	// those two actions mute/duck. Nil for every other action type.
 	Others []audio.Ref
 }
+```
+
+### `MediaHandlers` (struct)
+
+MediaHandlers implements model.ActionMediaTransport/ActionMediaSeek/
+ActionMediaTargetCycle/ActionMediaNowPlaying (see
+specs/milestones/M09-media-transport-mpris.md). Every command is
+resolved against players (a media.Tracker's cached state), never a
+live D-Bus property read -- see internal/media's package doc comment
+for why.
+
+```go
+type MediaHandlers struct {
+	players  MediaPlayers
+	backend  MediaCommands
+	notifier media.Notifier
+	opts     MediaOptions
+}
+```
+
+methods:
+
+```go
+func (h *MediaHandlers) Register(r *Registry)
+func (h *MediaHandlers) executeNowPlaying(ctx context.Context, inv Invocation) error
+func (h *MediaHandlers) executeSeek(ctx context.Context, inv Invocation) error
+func (h *MediaHandlers) executeTargetCycle(ctx context.Context, inv Invocation) error
+func (h *MediaHandlers) executeTransport(ctx context.Context, inv Invocation) error
+func (h *MediaHandlers) resolve(ref string) (media.PlayerInfo, error)
+func (h *MediaHandlers) unsupported(p media.PlayerInfo, what string) error
+```
+
+### `MediaOptions` (struct)
+
+MediaOptions configures MediaHandlers. The zero value is sane
+defaults.
+
+```go
+type MediaOptions struct {
+	// Logger receives per-command diagnostics (unsupported command, no
+	// matching player). Nil means slog.Default().
+	Logger *slog.Logger
+	// IgnorePlayers is read fresh on every dispatch (Config.Media.
+	// IgnorePlayers, via cmd/knobd's ConfigMutator) rather than cached,
+	// so an edit through the UI's Media tab applies immediately with no
+	// separate push path.
+	IgnorePlayers func() []string
+}
+```
+
+methods:
+
+```go
+func (o MediaOptions) ignorePlayers() []string
+func (o MediaOptions) logger() *slog.Logger
 ```
 
 ### `MixHandlers` (struct)
@@ -737,6 +835,31 @@ methods:
 func (h *fakeHandler) Execute(_ context.Context, inv Invocation) error
 ```
 
+### `fakeMediaPlayers` (struct)
+
+fakeMediaPlayers is a MediaPlayers test double, simpler than a real
+media.Tracker: Resolve/Cycle both just return whatever's configured,
+ignoring the ignore list (the handler tests exercise ignore-list
+plumbing via MediaOptions.IgnorePlayers/its own resolve wrapper, not
+via this fake's internals).
+
+```go
+type fakeMediaPlayers struct {
+	byRef      map[string]media.PlayerInfo
+	selected   media.PlayerInfo
+	hasDefault bool
+	cycleTo    media.PlayerInfo
+	hasCycle   bool
+}
+```
+
+methods:
+
+```go
+func (f *fakeMediaPlayers) Cycle(ignore []string) (media.PlayerInfo, bool)
+func (f *fakeMediaPlayers) Resolve(ref string, ignore []string) (media.PlayerInfo, bool)
+```
+
 ### `soloSession` (struct)
 
 soloSession is the one currently-active solo (see MixHandlers'
@@ -788,6 +911,23 @@ func TestDuckLowersOthersToPercentAndRestoresExactLevelsOnRelease(t *testing.T)
 func TestDuckReleaseWithNoActiveSessionIsNoop(t *testing.T)
 func TestDuckRepeatHoldWithNoInterveningReleaseIsNoop(t *testing.T)
 func TestDuckWrongActionTypeErrors(t *testing.T)
+func TestMediaIgnorePlayersReadFreshEveryDispatch(t *testing.T)
+func TestMediaNowPlayingNoTrackShowsNothingPlaying(t *testing.T)
+func TestMediaNowPlayingNotifiesWithTrackInfo(t *testing.T)
+func TestMediaSeekNegativeDeltaSeeksBackward(t *testing.T)
+func TestMediaSeekScalesByDelta(t *testing.T)
+func TestMediaSeekUnsupportedWhenCanSeekFalse(t *testing.T)
+func TestMediaTargetCycleNoPlayerErrors(t *testing.T)
+func TestMediaTargetCycleSelectsNextPlayer(t *testing.T)
+func TestMediaTransportNoPlayerErrors(t *testing.T)
+func TestMediaTransportPlayPauseRequiresCanControl(t *testing.T)
+func TestMediaTransportPlayPauseSendsCommand(t *testing.T)
+func TestMediaTransportPlayerRefResolvesSpecificPlayer(t *testing.T)
+func TestMediaTransportRepeatCycleAdvancesThroughStates(t *testing.T)
+func TestMediaTransportRepeatUnsupportedWhenEmpty(t *testing.T)
+func TestMediaTransportShuffleToggleFlipsCachedValue(t *testing.T)
+func TestMediaTransportShuffleUnsupportedWhenNil(t *testing.T)
+func TestMediaTransportWrongActionTypeErrors(t *testing.T)
 func TestRegistryDispatchesByActionType(t *testing.T)
 func TestRegistryDispatchesToRegisteredHandler(t *testing.T)
 func TestRegistryNilActionErrors(t *testing.T)
@@ -825,15 +965,16 @@ func matcherOverlapsTokens(m model.AppMatcher, tokens []string) bool
 func mustGetVolume(t *testing.T, fb *audio.FakeBackend, ref audio.Ref) audio.VolumeState
 func newAssignHandlersFor(cfg model.Config, info focus.AppInfo, opts AssignOptions) (*AssignHandlers, *fakeConfigStore)
 func newSceneHandlersFor(fb *audio.FakeBackend, cfg model.Config) (*SceneHandlers, *fakeConfigStore)
+func nextRepeatStatus(status string) string
 func push(index int) model.Control
 func refSetEqual(a, b []audio.Ref) bool
 func seedBackend(t *testing.T, refs map[audio.Ref]audio.VolumeState) *audio.FakeBackend
 func slugify(s string) string
 ```
 
-**consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`
+**consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`, `repeatCycleOrder`
 
-**tests:** `assign_test.go`, `mix_test.go`, `registry_test.go`, `scene_test.go`, `volume_test.go`
+**tests:** `assign_test.go`, `media_test.go`, `mix_test.go`, `registry_test.go`, `scene_test.go`, `volume_test.go`
 
 ## `internal/api`
 
@@ -1270,6 +1411,47 @@ type LearnState struct {
 }
 ```
 
+### `MediaPlayer` (struct)
+
+MediaPlayer is one currently-known MPRIS player, for the UI's Media
+tab / player picker (ui/src/components/binding's PlayerField).
+
+```go
+type MediaPlayer struct {
+	// Ref is media.PlayerInfo.Ref -- what PlayerRef/IgnorePlayers name.
+	Ref      string `json:"ref"`
+	BusName  string `json:"busName"`
+	Identity string `json:"identity,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Artist   string `json:"artist,omitempty"`
+	CanSeek  bool   `json:"canSeek"`
+	// Ignored is true when Ref is in Config.Media.IgnorePlayers -- shown
+	// even though such a player never appears as Selected, so the Media
+	// tab can offer to un-ignore it.
+	Ignored bool `json:"ignored"`
+}
+```
+
+### `MediaState` (struct)
+
+MediaState.Available is false until M09's media.New succeeds --
+mirrors FocusState.Available's role: media.transport/media.seek/
+media.target_cycle/media.now_playing don't resolve while it's false,
+and this is how the UI explains that.
+
+```go
+type MediaState struct {
+	Available bool `json:"available"`
+	// Selected is the currently selected player's ref (see
+	// media.PlayerInfo.Ref), or "" if none is selected -- the same
+	// short form MediaTransportAction.PlayerRef/Config.Media.
+	// IgnorePlayers use, not the full MPRIS bus name.
+	Selected string        `json:"selected,omitempty"`
+	Players  []MediaPlayer `json:"players"`
+}
+```
+
 ### `Options` (struct)
 
 Options configures New. Config and State are the daemon's adapters
@@ -1413,6 +1595,9 @@ type State struct {
 	// Learn is MIDI learn's current status -- see LearnController and
 	// engine.Engine.SetLearnUntil.
 	Learn LearnState `json:"learn"`
+	// Media is MPRIS player discovery/selection status -- see
+	// media.Tracker (M09).
+	Media MediaState `json:"media"`
 
 	// Controls lists only controls that currently do something -- one
 	// bound on the active layer (falling back to layer 0, same as
@@ -3236,6 +3421,11 @@ func TestBindingIndexInvalidBindingSkipped(t *testing.T)
 func TestBindingIndexLookupFallsBackToLayer0(t *testing.T)
 func TestBindingIndexMaxLayer(t *testing.T)
 func TestBindingIndexMaxLayerDefaultsToZero(t *testing.T)
+func TestCoalesceDoesNotMergeMediaSeekAcrossDifferentControls(t *testing.T)
+func TestCoalesceDoesNotMergeMediaSeekWithOtherActionTypes(t *testing.T)
+func TestCoalesceLeavesResyncAndNilInvUntouched(t *testing.T)
+func TestCoalesceMergesMediaSeekDeltasOnSameControl(t *testing.T)
+func TestCoalesceMergesVolumeAdjustDeltas(t *testing.T)
 func TestEngineFlashControlIsANoopWhenRunIsNotConsuming(t *testing.T)
 func TestEngineFlashControlOverridesThenReverts(t *testing.T)
 func TestEngineLearnExpiresWithNoInput(t *testing.T)
@@ -3325,7 +3515,7 @@ func waitForResolved(t *testing.T, e *Engine, control model.Control, gesture mod
 
 **consts/vars:** `DefaultFlashDuration`, `DefaultLearnTimeout`, `DoublePressWindow`, `HoldThreshold`, `MaxLearnTimeout`, `dispatchQueueDepth`, `enc1`, `errAudioSubscriptionClosed`, `ledControls`, `ledFlushInterval`, `push1`, `side1`, `testHold`, `testWindow`
 
-**tests:** `bindings_test.go`, `clock_test.go`, `engine_test.go`, `gesture_test.go`, `layers_test.go`, `learn_test.go`, `led_test.go`, `resolver_test.go`
+**tests:** `bindings_test.go`, `clock_test.go`, `dispatch_test.go`, `engine_test.go`, `gesture_test.go`, `layers_test.go`, `learn_test.go`, `led_test.go`, `resolver_test.go`
 
 **testdata used:** `testdata/pipewire/pw-dump-sample.json`
 
@@ -3605,6 +3795,392 @@ func trimVendorPrefix(tok string) string
 **consts/vars:** `DefaultBusName`, `DefaultInterface`, `DefaultObjectPath`, `ErrNameTaken`, `ErrNoSessionBus`, `ErrUnavailable`, `genericTrailingSegments`, `handshakeTimeout`, `ignoredResourceClasses`, `kwinPluginName`, `kwinRestartReinstallDelay`, `kwinScriptIface`, `kwinScriptPath`, `kwinService`, `rawScript`, `vendorPrefixes`
 
 **tests:** `fake_test.go`, `kwin_test.go`, `matcher_test.go`, `payload_test.go`, `script_test.go`, `unavailable_test.go`
+
+## `internal/media`
+
+Package media discovers and controls MPRIS media players over D-Bus
+(org.mpris.MediaPlayer2.* bus names, https://specifications.freedesktop.org/mpris-spec/latest/),
+for model.ActionMediaTransport/ActionMediaSeek/ActionMediaTargetCycle/
+ActionMediaNowPlaying. See specs/milestones/M09-media-transport-mpris.md.
+
+### `Backend` (interface)
+
+Backend talks to MPRIS players over D-Bus. See mpris.go for the real,
+session-bus-backed implementation and fake.go for FakeBackend.
+
+```go
+Watch(ctx context.Context) (<-chan Event, error)
+PlayPause(busName string) error
+Next(busName string) error
+Previous(busName string) error
+Seek(busName string, offset time.Duration) error
+SetShuffle(busName string, shuffle bool) error
+SetLoopStatus(busName string, status string) error
+Close() error
+```
+
+### `Notifier` (interface)
+
+Notifier shows a desktop notification for media.now_playing.
+
+```go
+Notify(summary, body string) error
+```
+
+### `Event` (struct)
+
+Event is one change Backend.Watch delivers.
+
+```go
+type Event struct {
+	Kind   EventKind
+	Player PlayerInfo
+}
+```
+
+### `FakeBackend` (struct)
+
+FakeBackend is a Backend test double: Watch delivers whatever Events
+are pushed to it via Emit, and every command call is recorded rather
+than sent anywhere -- the same shape as audio.FakeBackend/
+focus.FakeProvider.
+
+```go
+type FakeBackend struct {
+	mu     sync.Mutex
+	events chan Event
+
+	// Calls records every command method invoked, in order, as
+	// "Method(busName[, arg])".
+	Calls []string
+	// Err, if set, is returned by every command call instead of
+	// recording it.
+	Err error
+}
+```
+
+methods:
+
+```go
+func (f *FakeBackend) Close() error
+func (f *FakeBackend) Emit(ev Event)
+func (f *FakeBackend) Next(busName string) error
+func (f *FakeBackend) PlayPause(busName string) error
+func (f *FakeBackend) Previous(busName string) error
+func (f *FakeBackend) Seek(busName string, offset time.Duration) error
+func (f *FakeBackend) SetLoopStatus(busName string, status string) error
+func (f *FakeBackend) SetShuffle(busName string, shuffle bool) error
+func (f *FakeBackend) Watch(ctx context.Context) (<-chan Event, error)
+func (f *FakeBackend) record(call string) error
+```
+
+### `FakeNotifier` (struct)
+
+FakeNotifier is a Notifier test double: every call is recorded rather
+than sent anywhere.
+
+```go
+type FakeNotifier struct {
+	mu   sync.Mutex
+	Err  error
+	Sent []struct{ Summary, Body string }
+}
+```
+
+methods:
+
+```go
+func (f *FakeNotifier) Notify(summary, body string) error
+```
+
+### `Options` (struct)
+
+Options configures New.
+
+```go
+type Options struct {
+	Logger *slog.Logger
+
+	// Conn, if non-nil, is used instead of dialing a new session bus
+	// connection, and is never closed by Close -- for tests, mirroring
+	// focus.Options.Conn.
+	Conn *dbus.Conn
+}
+```
+
+methods:
+
+```go
+func (o *Options) setDefaults()
+```
+
+### `PlayerInfo` (struct)
+
+PlayerInfo is one MPRIS player's currently-known state -- a bag of
+best-effort hints, the same posture as focus.AppInfo/audio.Stream:
+Shuffle/LoopStatus are pointers/empty-string exactly because not
+every player implements them (see the package doc comment's Brave/
+plasma-browser-integration example).
+
+```go
+type PlayerInfo struct {
+	// BusName is the full org.mpris.MediaPlayer2.* bus name, e.g.
+	// "org.mpris.MediaPlayer2.brave.instance1918".
+	BusName string
+	// Identity is Root.Identity -- a human-readable name ("Brave",
+	// "Spotify") for status display.
+	Identity string
+	Status   PlaybackStatus
+
+	CanControl bool
+	CanSeek    bool
+	// Shuffle is nil when the player has no Shuffle property at all
+	// (property Get/GetAll returned no value for it), as opposed to a
+	// real false.
+	Shuffle *bool
+	// LoopStatus is "" when the player has no LoopStatus property at
+	// all, as opposed to a real "None". One of "None"/"Track"/
+	// "Playlist" otherwise, per the MPRIS spec.
+	LoopStatus string
+
+	Track Track
+}
+```
+
+methods:
+
+```go
+func (p PlayerInfo) Ref() string
+```
+
+### `Track` (struct)
+
+Track is the subset of MPRIS Metadata (xesam: namespace plus
+mpris:trackid) knobd surfaces -- to the UI's media state and to
+media.now_playing's notification.
+
+```go
+type Track struct {
+	ID      string
+	Title   string
+	Artists []string
+	Album   string
+	URL     string
+}
+```
+
+### `Tracker` (struct)
+
+Tracker consumes a Backend's discovery/state events and answers
+"which player is currently selected" -- "most recent wins", the same
+rule playerctld uses: the selected player is whichever last either
+started Playing or was explicitly chosen via Cycle. If the selected
+player vanishes, the most recently active remaining one takes over.
+
+```go
+type Tracker struct {
+	log      *slog.Logger
+	backend  Backend
+	onChange func()
+
+	mu       sync.Mutex
+	players  map[string]*playerRecord // busName -> record
+	nextSeq  uint64
+	selected string // busName, "" if none selected yet
+}
+```
+
+methods:
+
+```go
+func (t *Tracker) Cycle(ignore []string) (PlayerInfo, bool)
+func (t *Tracker) Resolve(ref string, ignore []string) (PlayerInfo, bool)
+func (t *Tracker) Selected(ignore []string) (PlayerInfo, bool)
+func (t *Tracker) Snapshot(ignore []string) (players []PlayerInfo, selected string)
+func (t *Tracker) apply(ev Event)
+func (t *Tracker) consume(events <-chan Event)
+func (t *Tracker) visible(ignore []string) []*playerRecord
+```
+
+### `TrackerOptions` (struct)
+
+TrackerOptions configures NewTracker.
+
+```go
+type TrackerOptions struct {
+	Logger *slog.Logger
+	// OnChange, if set, fires after every Backend.Watch event Tracker
+	// processes and after every Cycle -- knobd's SSE state-dirty seam
+	// (api.Hub.NotifyStateDirty), mirroring actions.VolumeOptions.
+	// OnApplied.
+	OnChange func()
+}
+```
+
+methods:
+
+```go
+func (o TrackerOptions) logger() *slog.Logger
+```
+
+### `dbusNotifier` (struct)
+
+dbusNotifier is the real, org.freedesktop.Notifications-backed
+Notifier -- confirmed present (served by plasmashell) during M09
+planning. It remembers the id its own last notification returned so a
+repeated media.now_playing press replaces that bubble (via
+Notify's replaces_id parameter) instead of piling up a new one.
+
+```go
+type dbusNotifier struct {
+	conn *dbus.Conn
+
+	mu     sync.Mutex
+	lastID uint32
+}
+```
+
+methods:
+
+```go
+func (n *dbusNotifier) Notify(summary, body string) error
+```
+
+### `mprisBackend` (struct)
+
+mprisBackend is the real, session-bus-backed Backend.
+
+```go
+type mprisBackend struct {
+	log      *slog.Logger
+	conn     *dbus.Conn
+	ownsConn bool
+
+	mu     sync.Mutex
+	state  map[string]PlayerInfo // busName -> last known state
+	owners map[string]string     // unique name (":1.50") -> busName
+
+	sigCh chan *dbus.Signal
+}
+```
+
+methods:
+
+```go
+func (b *mprisBackend) Close() error
+func (b *mprisBackend) Next(busName string) error
+func (b *mprisBackend) PlayPause(busName string) error
+func (b *mprisBackend) Previous(busName string) error
+func (b *mprisBackend) Seek(busName string, offset time.Duration) error
+func (b *mprisBackend) SetLoopStatus(busName string, status string) error
+func (b *mprisBackend) SetShuffle(busName string, shuffle bool) error
+func (b *mprisBackend) Watch(ctx context.Context) (<-chan Event, error)
+func (b *mprisBackend) handleAppear(ctx context.Context, busName string) (Event, bool)
+func (b *mprisBackend) handlePropertiesChanged(ctx context.Context, sig *dbus.Signal) (Event, bool)
+func (b *mprisBackend) handleSignal(ctx context.Context, sig *dbus.Signal) (Event, bool)
+func (b *mprisBackend) handleVanish(busName string) Event
+func (b *mprisBackend) listPlayerNames() []string
+func (b *mprisBackend) run(ctx context.Context, events chan<- Event)
+func (b *mprisBackend) send(ctx context.Context, events chan<- Event, ev Event)
+func (b *mprisBackend) setProperty(busName, prop string, value any) error
+```
+
+### `playerRecord` (struct)
+
+playerRecord is one tracked player plus the sequence number that
+decides "most recently active" (see Selected's doc comment).
+
+```go
+type playerRecord struct {
+	info PlayerInfo
+	seq  uint64
+}
+```
+
+### `unavailableBackend` (struct)
+
+unavailableBackend is a Backend that reports no players, ever --
+mirrors focus.Unavailable(), for a system with no D-Bus session bus
+(or before media.New has been tried).
+
+```go
+type unavailableBackend struct{}
+```
+
+methods:
+
+```go
+func (unavailableBackend) Close() error
+func (unavailableBackend) Next(string) error
+func (unavailableBackend) PlayPause(string) error
+func (unavailableBackend) Previous(string) error
+func (unavailableBackend) Seek(string, time.Duration) error
+func (unavailableBackend) SetLoopStatus(string, string) error
+func (unavailableBackend) SetShuffle(string, bool) error
+func (unavailableBackend) Watch(ctx context.Context) (<-chan Event, error)
+```
+
+### `unavailableNotifier` (struct)
+
+unavailableNotifier is a Notifier that always fails, matching
+unavailableBackend's role for when the session bus connection
+media.now_playing's Notify would use isn't available.
+
+```go
+type unavailableNotifier struct{}
+```
+
+methods:
+
+```go
+func (unavailableNotifier) Notify(string, string) error
+```
+
+### `EventKind`
+
+EventKind identifies what changed in an Event.
+
+```go
+type EventKind int
+```
+
+### `PlaybackStatus`
+
+PlaybackStatus mirrors MPRIS's Player.PlaybackStatus property.
+
+```go
+type PlaybackStatus string
+```
+
+**functions:**
+
+```go
+func MatchesRef(busName, ref string) bool
+func RefOf(busName string) string
+func TestApplyPlayerPropertiesInvalidatedClearsShuffleAndLoopStatus(t *testing.T)
+func TestApplyPlayerPropertiesShuffleLoopStatusUnsupportedByDefault(t *testing.T)
+func TestDecodeMetadata(t *testing.T)
+func TestDecodeMetadataIgnoresWrongTypes(t *testing.T)
+func TestMatchesRef(t *testing.T)
+func TestRefOf(t *testing.T)
+func TestTrackerCycleAdvancesAndWraps(t *testing.T)
+func TestTrackerCycleWithNoPlayersIsFalse(t *testing.T)
+func TestTrackerIgnoreListExcludesFromSelection(t *testing.T)
+func TestTrackerNoPlayersSelectedIsFalse(t *testing.T)
+func TestTrackerResolveByRefMatchesInstanceSuffix(t *testing.T)
+func TestTrackerSelectedMostRecentlyPlayingWins(t *testing.T)
+func TestTrackerSnapshotListsVisiblePlayersAndSelected(t *testing.T)
+func TestTrackerVanishFallsBackToNextMostRecentlyActive(t *testing.T)
+func applyPlayerProperties(info *PlayerInfo, props map[string]dbus.Variant, invalidated []string)
+func applyRootProperties(info *PlayerInfo, props map[string]dbus.Variant)
+func ignored(ref string, ignore []string) bool
+func newTestTracker(t *testing.T) (*Tracker, *FakeBackend)
+func settle()
+```
+
+**consts/vars:** `ErrNoPlayer`, `ErrNoSessionBus`, `ErrUnavailable`, `ErrUnsupported`, `instanceSuffixRx`, `mprisPrefix`, `notifyBusName`, `notifyIface`, `notifyObjectPath`, `playerIface`, `playerObjPath`, `propertyTimeout`, `propsIface`, `rootIface`
+
+**tests:** `media_test.go`, `tracker_test.go`
 
 ## `internal/midi`
 

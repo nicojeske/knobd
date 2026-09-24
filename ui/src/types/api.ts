@@ -397,12 +397,27 @@ export interface components {
         MediaNowPlayingAction: {
             playerRef?: string;
         };
+        MediaPlayer: {
+            ref: string;
+            busName: string;
+            identity?: string;
+            status?: string;
+            title?: string;
+            artist?: string;
+            canSeek: boolean;
+            ignored: boolean;
+        };
         MediaSeekAction: {
             seekMs: number;
             playerRef?: string;
         };
         MediaSettings: {
             ignorePlayers: string[];
+        };
+        MediaState: {
+            available: boolean;
+            selected?: string;
+            players: components["schemas"]["MediaPlayer"][];
         };
         MediaTargetCycleAction: Record<string, never>;
         MediaTransportAction: {
@@ -456,6 +471,7 @@ export interface components {
             focus: components["schemas"]["FocusState"];
             profile: components["schemas"]["ProfileState"];
             learn: components["schemas"]["LearnState"];
+            media: components["schemas"]["MediaState"];
             controls: components["schemas"]["ControlState"][];
         };
         Target: {

@@ -1386,6 +1386,42 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "MediaPlayer": {
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "busName": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artist": {
+            "type": "string"
+          },
+          "canSeek": {
+            "type": "boolean"
+          },
+          "ignored": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ref",
+          "busName",
+          "canSeek",
+          "ignored"
+        ]
+      },
       "MediaSeekAction": {
         "properties": {
           "seekMs": {
@@ -1414,6 +1450,28 @@
         "type": "object",
         "required": [
           "ignorePlayers"
+        ]
+      },
+      "MediaState": {
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "selected": {
+            "type": "string"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/MediaPlayer"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available",
+          "players"
         ]
       },
       "MediaTargetCycleAction": {
@@ -1628,6 +1686,9 @@
           "learn": {
             "$ref": "#/components/schemas/LearnState"
           },
+          "media": {
+            "$ref": "#/components/schemas/MediaState"
+          },
           "controls": {
             "items": {
               "$ref": "#/components/schemas/ControlState"
@@ -1644,6 +1705,7 @@
           "focus",
           "profile",
           "learn",
+          "media",
           "controls"
         ]
       },

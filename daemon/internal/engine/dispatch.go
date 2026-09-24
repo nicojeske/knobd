@@ -93,6 +93,9 @@ func drain(in <-chan work, first work) []work {
 //   - volume.follow: keep only the last Value, discarding the rest. This
 //     is what makes the fader usable -- the reference doc recorded 404
 //     pitch-bend messages in a single free-play session.
+//   - media.seek: sum the Deltas, same rule and reason as volume.adjust
+//     (M09) -- a fast encoder spin becomes one Seek call scaled by the
+//     summed detent count rather than one MPRIS round trip per detent.
 //
 // A resync request is never merged with anything; every other action
 // type is dispatched as-is, once per firing.
@@ -120,8 +123,8 @@ func mergeable(a, b work) bool {
 		return false
 	}
 	switch a.inv.Action.ActionType() {
-	case model.ActionVolumeAdjust, model.ActionVolumeFollow:
-		// only these two types have a defined merge rule below
+	case model.ActionVolumeAdjust, model.ActionVolumeFollow, model.ActionMediaSeek:
+		// only these types have a defined merge rule below
 	default:
 		return false
 	}
@@ -134,7 +137,7 @@ func mergeable(a, b work) bool {
 func merge(a, b work) work {
 	merged := *a.inv
 	switch a.inv.Action.ActionType() {
-	case model.ActionVolumeAdjust:
+	case model.ActionVolumeAdjust, model.ActionMediaSeek:
 		merged.Delta += b.inv.Delta
 	case model.ActionVolumeFollow:
 		merged.Value = b.inv.Value
