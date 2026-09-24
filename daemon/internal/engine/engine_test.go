@@ -919,6 +919,140 @@ func TestEngineRunSceneApplyAndSaveEndToEnd(t *testing.T) {
 	})
 }
 
+// newTestEngineWithMix is newTestEngine plus actions.MixHandlers
+// registered, for tests exercising audio.solo_toggle/audio.duck_hold
+// end to end through the full Run loop.
+func newTestEngineWithMix(cfg model.Config, clk *testClock) (*Engine, *midi.FakePort, *audio.FakeBackend) {
+	port := midi.NewFakePort(16)
+	backend := audio.NewFakeBackend()
+	registry := actions.NewRegistry()
+	var e *Engine
+	vh := actions.NewVolumeHandlers(backend, actions.VolumeOptions{
+		OnApplied: func(audio.Ref, audio.VolumeState) {
+			if e != nil {
+				e.NotifyLEDDirty()
+			}
+		},
+	})
+	vh.Register(registry)
+	actions.NewMixHandlers(vh, actions.MixOptions{}).Register(registry)
+
+	e = New(Deps{
+		Port:     port,
+		Codec:    device.NewXTouchMiniCodec(),
+		Audio:    backend,
+		Config:   cfg,
+		Registry: registry,
+		Clock:    clk,
+		Observer: vh,
+	})
+	return e, port, backend
+}
+
+// TestEngineRunDuckHoldRestoresOnReleaseWithNoExplicitReleaseBinding is
+// M08's fifth acceptance criterion, driven through the full Run loop,
+// and exercises holdPaired end to end: audio.duck_hold is bound only
+// on GestureHold (the natural way to configure it -- see holdPaired's
+// doc comment), yet releasing the control still restores, with no
+// separate GestureRelease binding.
+func TestEngineRunDuckHoldRestoresOnReleaseWithNoExplicitReleaseBinding(t *testing.T) {
+	push1 := model.Control{Kind: model.ControlEncoderPush, Index: 1}
+	musicRef := audio.Ref{Kind: audio.RefStream, ID: "music"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: push1, Gesture: model.GestureHold,
+					Action: model.AudioDuckHoldAction{Target: model.Target{Kind: model.TargetApp, Ref: "voice"}, DuckPercent: 10}},
+			},
+		}},
+		AppMatchers: []model.AppMatcher{{ID: "voice", AppNames: []string{"voice"}}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngineWithMix(cfg, clk)
+	backend.Seed(nil, nil, []audio.Stream{
+		{ID: "voice", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "voice"}},
+		{ID: "music", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "music"}},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+	waitForResolved(t, e, push1, model.GestureHold)
+
+	t0 := clk.Now()
+	clk.drainResets()
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 127, Time: t0}) // push1 down
+	if !clk.waitForReset(2 * time.Second) {
+		t.Fatal("timed out waiting for the hold timer to arm")
+	}
+	clk.Advance(HoldThreshold + 20*time.Millisecond) // GestureHold fires -> duck starts
+
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), musicRef)
+		return err == nil && st.Percent == 10
+	})
+
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 0, Time: t0.Add(HoldThreshold + 30*time.Millisecond)}) // release
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), musicRef)
+		return err == nil && st.Percent == 100 // FakeBackend.Seed's default
+	})
+}
+
+// TestEngineRunSoloTogglesEndToEnd is M08's fourth acceptance criterion,
+// driven through the full Run loop.
+func TestEngineRunSoloTogglesEndToEnd(t *testing.T) {
+	btn1 := model.Control{Kind: model.ControlButton, Index: 1} // note 89
+	voiceRef := audio.Ref{Kind: audio.RefStream, ID: "voice"}
+	musicRef := audio.Ref{Kind: audio.RefStream, ID: "music"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		AppMatchers:     []model.AppMatcher{{ID: "voice", AppNames: []string{"voice"}}},
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: btn1, Gesture: model.GesturePress,
+					Action: model.AudioSoloToggleAction{Target: model.Target{Kind: model.TargetApp, Ref: "voice"}}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngineWithMix(cfg, clk)
+	backend.Seed(nil, nil, []audio.Stream{
+		{ID: "voice", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "voice"}},
+		{ID: "music", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "music"}},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+	waitForResolved(t, e, btn1, model.GesturePress)
+
+	press := func(at time.Time) {
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 89, Data2: 127, Time: at})
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 89, Data2: 0, Time: at.Add(50 * time.Millisecond)})
+	}
+
+	press(clk.Now())
+	waitFor(t, 2*time.Second, func() bool {
+		music, err := backend.GetVolume(context.Background(), musicRef)
+		return err == nil && music.Muted
+	})
+	if st, err := backend.GetVolume(context.Background(), voiceRef); err != nil || st.Muted {
+		t.Errorf("voice (the solo target) should be unmuted: %+v, %v", st, err)
+	}
+
+	press(clk.Now().Add(2 * time.Second))
+	waitFor(t, 2*time.Second, func() bool {
+		music, err := backend.GetVolume(context.Background(), musicRef)
+		return err == nil && !music.Muted
+	})
+}
+
 func TestEngineRunAudioSubscriptionClosedIsFatal(t *testing.T) {
 	clk := newTestClock(time.Unix(0, 0))
 	e, _, backend := newTestEngine(model.Config{ActiveProfileID: "default", Profiles: []model.Profile{{ID: "default"}}}, clk)
