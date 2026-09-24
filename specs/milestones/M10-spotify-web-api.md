@@ -28,7 +28,12 @@ listener during the auth flow only — see Design refinements for why the
 port is fixed rather than dynamically assigned), refresh-token storage
 via the Secret Service D-Bus API rather than a plaintext file, handlers
 for `spotify.like_toggle`/`add_to_playlist`/`remove_from_playlist`/
-`start_playlist`/`queue_track`/`transfer_playback`.
+`start_playlist`/`queue_track`/`transfer_playback`/`volume_adjust`/
+`volume_set`. The volume actions control the active Spotify Connect
+device's volume via the Web API (`PUT /me/player/volume`), not the local
+PipeWire mixer — the point is that it stays in sync with Spotify Connect
+itself (and whatever device the user actually plays through), which a
+local mixer write cannot do.
 
 **Out**: any Spotify feature not in the action catalog (this is not a
 general Spotify API client). Re-implementing anything MPRIS already
@@ -44,7 +49,12 @@ for the same app.
 `SpotifyRemoveFromPlaylistAction{PlaylistID}`,
 `SpotifyStartPlaylistAction{PlaylistID}`,
 `SpotifyQueueTrackAction{TrackID}`,
-`SpotifyTransferPlaybackAction{DeviceName, Play}` — following
+`SpotifyTransferPlaybackAction{DeviceName, Play}`,
+`SpotifyVolumeAdjustAction{StepPercent}` (fired on `GestureTurn`, reads
+`Client.CurrentVolume` fresh on every call — no local cache, unlike
+`VolumeAdjustAction`, since the whole point is staying in sync with a
+level that can change from elsewhere), `SpotifyVolumeSetAction{Percent}`
+— following
 `model.Action`'s established registration pattern (constant in
 `action.go`, struct, `actionRegistry` entry, `TestActionRegistryComplete`
 catches a missed entry).
@@ -102,6 +112,14 @@ newest press with a logged warning rather than blocking.
 - [x] Token refresh on expiry is transparent. (`TokenManager.AccessToken`
       refreshes ahead of expiry and on a 401 with one retry, covered by
       `TestTokenManagerRefreshesWhenExpired`/`TestClientRetriesOnceOn401`.)
+- [x] A knob adjusts, and a button sets, the active Spotify Connect
+      device's volume via the Web API. (`actions.SpotifyHandlers.
+      volumeAdjust`/`volumeSet`, `spotify.Client.CurrentVolume`/
+      `SetVolume`; covered by `TestSpotifyVolumeAdjust*`/
+      `TestSpotifyVolumeSet`/`TestClientCurrentVolume*`/
+      `TestClientSetVolume`. Manual confirmation that a real Spotify
+      Connect device's volume actually moves, and stays in sync when
+      changed from elsewhere, is open.)
 
 ## Verification
 
@@ -195,6 +213,22 @@ developer application — see Risks):
   deletes the stored refresh token and reports `ErrNotAuthorized`, so the
   Spotify tab shows "Connect" again instead of repeating the same error
   forever.
+- **The `/me/library` endpoints (save/remove/check) take `uris` as a
+  query string parameter, not an `"ids"` JSON request body** — found by
+  hand-testing `spotify.like_toggle` against a real account: it silently
+  failed validation and never touched the library. `client.go`'s
+  original shape (a JSON body keyed `"ids"`) was carried over from the
+  pre-February-2026 `/me/tracks*` family's request shape by mistake, not
+  from the new endpoints' actual documented shape (confirmed against
+  Spotify's own reference docs: `PUT`/`DELETE /me/library?uris=...` and
+  `GET /me/library/contains?uris=...`, all query-parameter based, a
+  comma-separated list of up to 40 URIs). Fixed in `SaveToLibrary`/
+  `RemoveFromLibrary`/`LibraryContains`; `GET /me/library/contains`'s
+  `ids`-vs-`uris` param name and bare-JSON-array response shape were
+  otherwise already correct. This resolves the "Risks & open questions"
+  entry about the `/playlists/{id}/items` DELETE body shape being
+  unconfirmed for the sibling `/me/library` endpoints specifically (the
+  playlist-items body shape itself is still unconfirmed — see Risks).
 - **`spotify.Service.Login` takes no `ctx` parameter, deliberately** --
   found by hand-testing the real flow: `api`'s `handleSpotifyLogin`
   originally threaded `r.Context()` (POST /spotify/login's own request

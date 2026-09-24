@@ -298,6 +298,14 @@ export interface components {
             params: components["schemas"]["SpotifyTransferPlaybackAction"];
         } | {
             /** @constant */
+            type: "spotify.volume_adjust";
+            params: components["schemas"]["SpotifyVolumeAdjustAction"];
+        } | {
+            /** @constant */
+            type: "spotify.volume_set";
+            params: components["schemas"]["SpotifyVolumeSetAction"];
+        } | {
+            /** @constant */
             type: "volume.adjust";
             params: components["schemas"]["VolumeAdjustAction"];
         } | {
@@ -384,7 +392,7 @@ export interface components {
             action: components["schemas"]["Action"];
         };
         Capabilities: {
-            implementedActions: ("audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "spotify.add_to_playlist" | "spotify.like_toggle" | "spotify.queue_track" | "spotify.remove_from_playlist" | "spotify.start_playlist" | "spotify.transfer_playback" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set")[];
+            implementedActions: ("audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "spotify.add_to_playlist" | "spotify.like_toggle" | "spotify.queue_track" | "spotify.remove_from_playlist" | "spotify.start_playlist" | "spotify.transfer_playback" | "spotify.volume_adjust" | "spotify.volume_set" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set")[];
             supportedTargetKinds: ("default_sink" | "sink" | "default_source" | "source" | "app" | "group" | "focused" | "all_streams")[];
             features: components["schemas"]["Features"];
         };
@@ -411,7 +419,7 @@ export interface components {
             /** @enum {string} */
             gesture: "turn" | "press" | "hold" | "release" | "double_press" | "move";
             /** @enum {string} */
-            actionType: "audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "spotify.add_to_playlist" | "spotify.like_toggle" | "spotify.queue_track" | "spotify.remove_from_playlist" | "spotify.start_playlist" | "spotify.transfer_playback" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set";
+            actionType: "audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "spotify.add_to_playlist" | "spotify.like_toggle" | "spotify.queue_track" | "spotify.remove_from_playlist" | "spotify.start_playlist" | "spotify.transfer_playback" | "spotify.volume_adjust" | "spotify.volume_set" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set";
             target?: components["schemas"]["Target"];
             resolved?: components["schemas"]["ResolvedTarget"];
         };
@@ -596,6 +604,12 @@ export interface components {
         SpotifyTransferPlaybackAction: {
             deviceName: string;
             play?: boolean;
+        };
+        SpotifyVolumeAdjustAction: {
+            stepPercent: number;
+        };
+        SpotifyVolumeSetAction: {
+            percent: number;
         };
         State: {
             /** Format: date-time */

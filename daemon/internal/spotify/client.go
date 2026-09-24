@@ -209,10 +209,16 @@ func (c *Client) CurrentlyPlaying(ctx context.Context) (CurrentTrack, error) {
 }
 
 // LibraryContains reports whether uri is already saved to the user's
-// library (GET /me/library/contains).
+// library (GET /me/library/contains). uris is a query parameter (a
+// comma-separated list of Spotify URIs, not a JSON body), same as
+// SaveToLibrary/RemoveFromLibrary -- confirmed against Spotify's own
+// reference docs after the original "ids" JSON-body shape (carried over
+// from the pre-February-2026 /me/tracks* family) turned out to silently
+// no-op against the real API: it fails validation and never reaches the
+// library at all.
 func (c *Client) LibraryContains(ctx context.Context, uri string) (bool, error) {
 	var result []bool
-	q := url.Values{"ids": {uri}}
+	q := url.Values{"uris": {uri}}
 	if err := c.do(ctx, http.MethodGet, "/me/library/contains", q, nil, &result); err != nil {
 		return false, err
 	}
@@ -221,13 +227,15 @@ func (c *Client) LibraryContains(ctx context.Context, uri string) (bool, error) 
 
 // SaveToLibrary saves uri to the user's library (PUT /me/library).
 func (c *Client) SaveToLibrary(ctx context.Context, uri string) error {
-	return c.do(ctx, http.MethodPut, "/me/library", nil, map[string]any{"ids": []string{uri}}, nil)
+	q := url.Values{"uris": {uri}}
+	return c.do(ctx, http.MethodPut, "/me/library", q, nil, nil)
 }
 
 // RemoveFromLibrary removes uri from the user's library
 // (DELETE /me/library).
 func (c *Client) RemoveFromLibrary(ctx context.Context, uri string) error {
-	return c.do(ctx, http.MethodDelete, "/me/library", nil, map[string]any{"ids": []string{uri}}, nil)
+	q := url.Values{"uris": {uri}}
+	return c.do(ctx, http.MethodDelete, "/me/library", q, nil, nil)
 }
 
 // AddPlaylistItems adds uri to playlistID (POST /playlists/{id}/items).
@@ -261,6 +269,36 @@ func (c *Client) Queue(ctx context.Context, trackURI string) error {
 func (c *Client) Transfer(ctx context.Context, deviceID string, play bool) error {
 	body := map[string]any{"device_ids": []string{deviceID}, "play": play}
 	return c.do(ctx, http.MethodPut, "/me/player", nil, body, nil)
+}
+
+// CurrentVolume returns the active Spotify Connect device's volume, 0-100
+// (GET /me/player's device.volume_percent). Returns ErrNoActiveDevice if
+// there is no active device (Spotify's own 204 response, the same
+// "nothing to act on" case Transfer/PlayContext/Queue report for the
+// player-mutation endpoints).
+func (c *Client) CurrentVolume(ctx context.Context) (int, error) {
+	var body struct {
+		Device *struct {
+			VolumePercent *int `json:"volume_percent"`
+		} `json:"device"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/me/player", nil, nil, &body); err != nil {
+		return 0, err
+	}
+	if body.Device == nil || body.Device.VolumePercent == nil {
+		return 0, ErrNoActiveDevice
+	}
+	return *body.Device.VolumePercent, nil
+}
+
+// SetVolume sets the active Spotify Connect device's volume to percent
+// (0-100), via PUT /me/player/volume?volume_percent=N -- this moves the
+// level Spotify Connect itself tracks, so it stays in sync across
+// whatever device is actually playing, unlike a local PipeWire mixer
+// change.
+func (c *Client) SetVolume(ctx context.Context, percent int) error {
+	q := url.Values{"volume_percent": {fmt.Sprintf("%d", percent)}}
+	return c.do(ctx, http.MethodPut, "/me/player/volume", q, nil, nil)
 }
 
 // Device is one Spotify Connect device from GET /me/player/devices.

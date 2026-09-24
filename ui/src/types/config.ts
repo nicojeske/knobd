@@ -103,6 +103,14 @@ export type Action =
       params: SpotifyTransferPlaybackAction;
     }
   | {
+      type: "spotify.volume_adjust";
+      params: SpotifyVolumeAdjustAction;
+    }
+  | {
+      type: "spotify.volume_set";
+      params: SpotifyVolumeSetAction;
+    }
+  | {
       type: "volume.adjust";
       params: VolumeAdjustAction;
     }
@@ -218,6 +226,12 @@ export interface SpotifyStartPlaylistAction {
 export interface SpotifyTransferPlaybackAction {
   deviceName: string;
   play?: boolean;
+}
+export interface SpotifyVolumeAdjustAction {
+  stepPercent: number;
+}
+export interface SpotifyVolumeSetAction {
+  percent: number;
 }
 export interface VolumeAdjustAction {
   target: Target;

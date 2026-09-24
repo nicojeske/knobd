@@ -30,10 +30,11 @@ func newTestClient(t *testing.T, srv *httptest.Server) *Client {
 
 func TestClientSaveToLibraryUsesURIsAndNewEndpoint(t *testing.T) {
 	var gotMethod, gotPath string
-	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath = r.Method, r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		if r.URL.Query().Get("uris") != "spotify:track:abc123" {
+			t.Errorf("uris query = %q, want spotify:track:abc123", r.URL.Query().Get("uris"))
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -45,10 +46,6 @@ func TestClientSaveToLibraryUsesURIsAndNewEndpoint(t *testing.T) {
 	if gotMethod != http.MethodPut || gotPath != "/me/library" {
 		t.Errorf("request = %s %s, want PUT /me/library", gotMethod, gotPath)
 	}
-	ids, _ := gotBody["ids"].([]any)
-	if len(ids) != 1 || ids[0] != "spotify:track:abc123" {
-		t.Errorf("body ids = %v, want [spotify:track:abc123]", gotBody["ids"])
-	}
 }
 
 func TestClientLibraryContains(t *testing.T) {
@@ -56,8 +53,8 @@ func TestClientLibraryContains(t *testing.T) {
 		if r.URL.Path != "/me/library/contains" {
 			t.Errorf("path = %s, want /me/library/contains", r.URL.Path)
 		}
-		if r.URL.Query().Get("ids") != "spotify:track:abc123" {
-			t.Errorf("ids query = %q", r.URL.Query().Get("ids"))
+		if r.URL.Query().Get("uris") != "spotify:track:abc123" {
+			t.Errorf("uris query = %q", r.URL.Query().Get("uris"))
 		}
 		json.NewEncoder(w).Encode([]bool{true})
 	}))
@@ -70,6 +67,79 @@ func TestClientLibraryContains(t *testing.T) {
 	}
 	if !ok {
 		t.Error("LibraryContains = false, want true")
+	}
+}
+
+func TestClientRemoveFromLibraryUsesURIsQueryParam(t *testing.T) {
+	var gotMethod, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		if r.URL.Query().Get("uris") != "spotify:track:abc123" {
+			t.Errorf("uris query = %q, want spotify:track:abc123", r.URL.Query().Get("uris"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	if err := c.RemoveFromLibrary(context.Background(), "spotify:track:abc123"); err != nil {
+		t.Fatalf("RemoveFromLibrary: %v", err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/me/library" {
+		t.Errorf("request = %s %s, want DELETE /me/library", gotMethod, gotPath)
+	}
+}
+
+func TestClientCurrentVolume(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/me/player" {
+			t.Errorf("path = %s, want /me/player", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"device": map[string]any{"volume_percent": 42},
+		})
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	got, err := c.CurrentVolume(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentVolume: %v", err)
+	}
+	if got != 42 {
+		t.Errorf("CurrentVolume = %d, want 42", got)
+	}
+}
+
+func TestClientCurrentVolumeNoActiveDevice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	if _, err := c.CurrentVolume(context.Background()); err != ErrNoActiveDevice {
+		t.Fatalf("err = %v, want ErrNoActiveDevice", err)
+	}
+}
+
+func TestClientSetVolume(t *testing.T) {
+	var gotMethod, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		if r.URL.Query().Get("volume_percent") != "37" {
+			t.Errorf("volume_percent query = %q, want 37", r.URL.Query().Get("volume_percent"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	if err := c.SetVolume(context.Background(), 37); err != nil {
+		t.Fatalf("SetVolume: %v", err)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/me/player/volume" {
+		t.Errorf("request = %s %s, want PUT /me/player/volume", gotMethod, gotPath)
 	}
 }
 

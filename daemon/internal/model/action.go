@@ -65,6 +65,8 @@ const (
 	ActionSpotifyStartPlaylist      ActionType = "spotify.start_playlist"
 	ActionSpotifyQueueTrack         ActionType = "spotify.queue_track"
 	ActionSpotifyTransferPlayback   ActionType = "spotify.transfer_playback"
+	ActionSpotifyVolumeAdjust       ActionType = "spotify.volume_adjust"
+	ActionSpotifyVolumeSet          ActionType = "spotify.volume_set"
 
 	// -- Extended / system (specs/milestones/M11-extended-actions.md) --
 
@@ -345,6 +347,28 @@ type SpotifyTransferPlaybackAction struct {
 
 func (SpotifyTransferPlaybackAction) ActionType() ActionType { return ActionSpotifyTransferPlayback }
 
+// SpotifyVolumeAdjustAction changes the active Spotify Connect device's
+// volume by StepPercent per detent, via the Web API (PUT
+// /me/player/volume) rather than a local PipeWire mixer -- this keeps
+// the level in sync with Spotify Connect itself regardless of which
+// device is actually playing (a phone, a speaker, ...), unlike
+// VolumeAdjustAction. StepPercent may be negative to invert the
+// encoder's direction. Fired on GestureTurn.
+type SpotifyVolumeAdjustAction struct {
+	StepPercent float64 `json:"stepPercent"`
+}
+
+func (SpotifyVolumeAdjustAction) ActionType() ActionType { return ActionSpotifyVolumeAdjust }
+
+// SpotifyVolumeSetAction jumps the active Spotify Connect device's
+// volume directly to Percent (PUT /me/player/volume), e.g. a button
+// bound to "always 50%".
+type SpotifyVolumeSetAction struct {
+	Percent float64 `json:"percent"`
+}
+
+func (SpotifyVolumeSetAction) ActionType() ActionType { return ActionSpotifyVolumeSet }
+
 // SinkCycleDefaultAction advances the system default sink to the next
 // entry in SinkNames (wrapping), e.g. cycling headphones -> speakers ->
 // HDMI on one button.
@@ -426,6 +450,8 @@ var actionRegistry = map[ActionType]actionEntry{
 	ActionSpotifyStartPlaylist:      newActionEntry[SpotifyStartPlaylistAction](),
 	ActionSpotifyQueueTrack:         newActionEntry[SpotifyQueueTrackAction](),
 	ActionSpotifyTransferPlayback:   newActionEntry[SpotifyTransferPlaybackAction](),
+	ActionSpotifyVolumeAdjust:       newActionEntry[SpotifyVolumeAdjustAction](),
+	ActionSpotifyVolumeSet:          newActionEntry[SpotifyVolumeSetAction](),
 	ActionSinkCycleDefault:          newActionEntry[SinkCycleDefaultAction](),
 	ActionMicPushToTalk:             newActionEntry[MicPushToTalkAction](),
 	ActionMicPushToMute:             newActionEntry[MicPushToMuteAction](),

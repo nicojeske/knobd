@@ -789,6 +789,38 @@
           {
             "properties": {
               "type": {
+                "const": "spotify.volume_adjust"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyVolumeAdjustAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.volume_set"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyVolumeSetAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
                 "const": "volume.adjust"
               },
               "params": {
@@ -1168,6 +1200,8 @@
                 "spotify.remove_from_playlist",
                 "spotify.start_playlist",
                 "spotify.transfer_playback",
+                "spotify.volume_adjust",
+                "spotify.volume_set",
                 "volume.adjust",
                 "volume.balance",
                 "volume.follow",
@@ -1335,6 +1369,8 @@
               "spotify.remove_from_playlist",
               "spotify.start_playlist",
               "spotify.transfer_playback",
+              "spotify.volume_adjust",
+              "spotify.volume_set",
               "volume.adjust",
               "volume.balance",
               "volume.follow",
@@ -2082,6 +2118,30 @@
         "type": "object",
         "required": [
           "deviceName"
+        ]
+      },
+      "SpotifyVolumeAdjustAction": {
+        "properties": {
+          "stepPercent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stepPercent"
+        ]
+      },
+      "SpotifyVolumeSetAction": {
+        "properties": {
+          "percent": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "percent"
         ]
       },
       "State": {

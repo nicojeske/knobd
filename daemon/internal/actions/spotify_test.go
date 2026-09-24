@@ -31,6 +31,9 @@ type fakeSpotifyAPI struct {
 	devices     []spotify.Device
 	devicesErr  error
 	playlists   []spotify.Playlist
+	volume      int
+	volumeErr   error
+	setVolErr   error
 
 	saved, removed                []string
 	addedPlaylist, addedURI       string
@@ -39,6 +42,8 @@ type fakeSpotifyAPI struct {
 	queuedURI                     string
 	transferredDevice             string
 	transferredPlay               bool
+	setVolume                     int
+	setVolumeCalled               bool
 }
 
 func (f *fakeSpotifyAPI) CurrentlyPlaying(ctx context.Context) (spotify.CurrentTrack, error) {
@@ -84,6 +89,15 @@ func (f *fakeSpotifyAPI) Devices(ctx context.Context) ([]spotify.Device, error) 
 }
 func (f *fakeSpotifyAPI) Playlists(ctx context.Context) ([]spotify.Playlist, error) {
 	return f.playlists, nil
+}
+func (f *fakeSpotifyAPI) CurrentVolume(ctx context.Context) (int, error) {
+	return f.volume, f.volumeErr
+}
+func (f *fakeSpotifyAPI) SetVolume(ctx context.Context, percent int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setVolume, f.setVolumeCalled = percent, true
+	return f.setVolErr
 }
 
 var _ SpotifyAPI = (*fakeSpotifyAPI)(nil)
@@ -197,6 +211,39 @@ func TestSpotifyQueueTrack(t *testing.T) {
 
 	if api.queuedURI != "spotify:track:37i9dQZF1DXcBWIGoYBM5M" {
 		t.Errorf("Queue = %q", api.queuedURI)
+	}
+}
+
+func TestSpotifyVolumeAdjustAddsStepToCurrent(t *testing.T) {
+	api := &fakeSpotifyAPI{volume: 40}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
+
+	if !api.setVolumeCalled || api.setVolume != 45 {
+		t.Errorf("SetVolume = %d, called=%v, want 45", api.setVolume, api.setVolumeCalled)
+	}
+}
+
+func TestSpotifyVolumeAdjustClampsToRange(t *testing.T) {
+	api := &fakeSpotifyAPI{volume: 98}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 10})
+
+	if api.setVolume != 100 {
+		t.Errorf("SetVolume = %d, want clamped to 100", api.setVolume)
+	}
+}
+
+func TestSpotifyVolumeSet(t *testing.T) {
+	api := &fakeSpotifyAPI{}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	runOne(t, h, model.SpotifyVolumeSetAction{Percent: 30})
+
+	if !api.setVolumeCalled || api.setVolume != 30 {
+		t.Errorf("SetVolume = %d, called=%v, want 30", api.setVolume, api.setVolumeCalled)
 	}
 }
 

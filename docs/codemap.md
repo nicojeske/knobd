@@ -508,6 +508,8 @@ Queue(ctx context.Context, trackURI string) error
 Transfer(ctx context.Context, deviceID string, play bool) error
 Devices(ctx context.Context) ([]spotify.Device, error)
 Playlists(ctx context.Context) ([]spotify.Playlist, error)
+CurrentVolume(ctx context.Context) (int, error)
+SetVolume(ctx context.Context, percent int) error
 ```
 
 ### `AssignHandlers` (struct)
@@ -809,6 +811,8 @@ func (h *SpotifyHandlers) removeFromPlaylist(ctx context.Context, a model.Spotif
 func (h *SpotifyHandlers) runJob(parent context.Context, job spotifyJob)
 func (h *SpotifyHandlers) startPlaylist(ctx context.Context, a model.SpotifyStartPlaylistAction) error
 func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyTransferPlaybackAction) error
+func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction) error
+func (h *SpotifyHandlers) volumeSet(ctx context.Context, a model.SpotifyVolumeSetAction) error
 ```
 
 ### `SpotifyOptions` (struct)
@@ -1015,6 +1019,9 @@ type fakeSpotifyAPI struct {
 	devices     []spotify.Device
 	devicesErr  error
 	playlists   []spotify.Playlist
+	volume      int
+	volumeErr   error
+	setVolErr   error
 
 	saved, removed                []string
 	addedPlaylist, addedURI       string
@@ -1023,6 +1030,8 @@ type fakeSpotifyAPI struct {
 	queuedURI                     string
 	transferredDevice             string
 	transferredPlay               bool
+	setVolume                     int
+	setVolumeCalled               bool
 }
 ```
 
@@ -1030,6 +1039,7 @@ methods:
 
 ```go
 func (f *fakeSpotifyAPI) AddPlaylistItems(ctx context.Context, playlistID, uri string) error
+func (f *fakeSpotifyAPI) CurrentVolume(ctx context.Context) (int, error)
 func (f *fakeSpotifyAPI) CurrentlyPlaying(ctx context.Context) (spotify.CurrentTrack, error)
 func (f *fakeSpotifyAPI) Devices(ctx context.Context) ([]spotify.Device, error)
 func (f *fakeSpotifyAPI) LibraryContains(ctx context.Context, uri string) (bool, error)
@@ -1039,6 +1049,7 @@ func (f *fakeSpotifyAPI) Queue(ctx context.Context, trackURI string) error
 func (f *fakeSpotifyAPI) RemoveFromLibrary(ctx context.Context, uri string) error
 func (f *fakeSpotifyAPI) RemovePlaylistItems(ctx context.Context, playlistID, uri string) error
 func (f *fakeSpotifyAPI) SaveToLibrary(ctx context.Context, uri string) error
+func (f *fakeSpotifyAPI) SetVolume(ctx context.Context, percent int) error
 func (f *fakeSpotifyAPI) Transfer(ctx context.Context, deviceID string, play bool) error
 ```
 
@@ -1149,6 +1160,9 @@ func TestSpotifyRunProcessesQueuedJobs(t *testing.T)
 func TestSpotifyStartPlaylist(t *testing.T)
 func TestSpotifyTransferPlaybackMatchesByName(t *testing.T)
 func TestSpotifyTransferPlaybackUnknownDevice(t *testing.T)
+func TestSpotifyVolumeAdjustAddsStepToCurrent(t *testing.T)
+func TestSpotifyVolumeAdjustClampsToRange(t *testing.T)
+func TestSpotifyVolumeSet(t *testing.T)
 func TestUserFacingSpotifyErrorMapsSentinels(t *testing.T)
 func TestVolumeAdjustCoalescingEquivalence(t *testing.T)
 func TestVolumeAdjustMultiRefIndependent(t *testing.T)
@@ -1165,6 +1179,7 @@ func TestVolumeOnAppliedFiresForVolumeWrites(t *testing.T)
 func TestVolumeSetClampsToMax(t *testing.T)
 func applyAssignment(cfg model.Config, layer int, push model.Control, info focus.AppInfo, step float64) (model.Config, model.Control, model.AppMatcher, error)
 func baseConfig() model.Config
+func clampPercent(v float64) int
 func encoder(index int) model.Control
 func findOrCreateMatcher(matchers []model.AppMatcher, tokens []string, displayName string) (id string, matcher model.AppMatcher, out []model.AppMatcher)
 func mapKeys(m map[audio.Ref]bool) []audio.Ref
@@ -5433,6 +5448,46 @@ methods:
 func (SpotifyTransferPlaybackAction) ActionType() ActionType
 ```
 
+### `SpotifyVolumeAdjustAction` (struct)
+
+SpotifyVolumeAdjustAction changes the active Spotify Connect device's
+volume by StepPercent per detent, via the Web API (PUT
+/me/player/volume) rather than a local PipeWire mixer -- this keeps
+the level in sync with Spotify Connect itself regardless of which
+device is actually playing (a phone, a speaker, ...), unlike
+VolumeAdjustAction. StepPercent may be negative to invert the
+encoder's direction. Fired on GestureTurn.
+
+```go
+type SpotifyVolumeAdjustAction struct {
+	StepPercent float64 `json:"stepPercent"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyVolumeAdjustAction) ActionType() ActionType
+```
+
+### `SpotifyVolumeSetAction` (struct)
+
+SpotifyVolumeSetAction jumps the active Spotify Connect device's
+volume directly to Percent (PUT /me/player/volume), e.g. a button
+bound to "always 50%".
+
+```go
+type SpotifyVolumeSetAction struct {
+	Percent float64 `json:"percent"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyVolumeSetAction) ActionType() ActionType
+```
+
 ### `Target` (struct)
 
 Target names what an Action operates on. Ref's meaning depends on
@@ -6058,6 +6113,7 @@ methods:
 
 ```go
 func (c *Client) AddPlaylistItems(ctx context.Context, playlistID, uri string) error
+func (c *Client) CurrentVolume(ctx context.Context) (int, error)
 func (c *Client) CurrentlyPlaying(ctx context.Context) (CurrentTrack, error)
 func (c *Client) Devices(ctx context.Context) ([]Device, error)
 func (c *Client) LibraryContains(ctx context.Context, uri string) (bool, error)
@@ -6068,6 +6124,7 @@ func (c *Client) Queue(ctx context.Context, trackURI string) error
 func (c *Client) RemoveFromLibrary(ctx context.Context, uri string) error
 func (c *Client) RemovePlaylistItems(ctx context.Context, playlistID, uri string) error
 func (c *Client) SaveToLibrary(ctx context.Context, uri string) error
+func (c *Client) SetVolume(ctx context.Context, percent int) error
 func (c *Client) Transfer(ctx context.Context, deviceID string, play bool) error
 func (c *Client) currentUserID(ctx context.Context) (string, error)
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body, out any) error
@@ -6407,12 +6464,16 @@ func (unavailableSecretStore) Set(account, token string) error
 func ParseID(wantKind, s string) (string, error)
 func TestChallengeFromVerifierKnownVector(t *testing.T)
 func TestClientAddPlaylistItemsUsesItemsPath(t *testing.T)
+func TestClientCurrentVolume(t *testing.T)
+func TestClientCurrentVolumeNoActiveDevice(t *testing.T)
 func TestClientCurrentlyPlayingNothingPlaying(t *testing.T)
 func TestClientLibraryContains(t *testing.T)
 func TestClientPlayerErrorNoActiveDevice(t *testing.T)
 func TestClientPlaylistsEditableFlag(t *testing.T)
+func TestClientRemoveFromLibraryUsesURIsQueryParam(t *testing.T)
 func TestClientRetriesOnceOn401(t *testing.T)
 func TestClientSaveToLibraryUsesURIsAndNewEndpoint(t *testing.T)
+func TestClientSetVolume(t *testing.T)
 func TestGenerateVerifierLengthAndUniqueness(t *testing.T)
 func TestParseID(t *testing.T)
 func TestRefreshTokensInvalidGrant(t *testing.T)

@@ -390,6 +390,38 @@
         {
           "properties": {
             "type": {
+              "const": "spotify.volume_adjust"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyVolumeAdjustAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "spotify.volume_set"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyVolumeSetAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
               "const": "volume.adjust"
             },
             "params": {
@@ -944,6 +976,30 @@
       "type": "object",
       "required": [
         "deviceName"
+      ]
+    },
+    "SpotifyVolumeAdjustAction": {
+      "properties": {
+        "stepPercent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "stepPercent"
+      ]
+    },
+    "SpotifyVolumeSetAction": {
+      "properties": {
+        "percent": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "percent"
       ]
     },
     "Target": {

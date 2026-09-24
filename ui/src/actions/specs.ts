@@ -225,6 +225,20 @@ export const ACTION_SPECS: { readonly [T in ActionType]: ActionSpec<T> } = {
       { kind: "boolean", key: "play", label: "Resume playback on the new device" },
     ],
   },
+  "spotify.volume_adjust": {
+    label: "Adjust volume (Spotify Connect)",
+    group: "spotify",
+    note: "Controls the active Spotify Connect device's volume via the Web API, not the local mixer -- stays in sync when playback is on another device.",
+    defaults: () => ({ stepPercent: 5 }),
+    fields: [{ kind: "number", key: "stepPercent", label: "Step", unit: "%" }],
+  },
+  "spotify.volume_set": {
+    label: "Set volume (Spotify Connect)",
+    group: "spotify",
+    note: "Controls the active Spotify Connect device's volume via the Web API, not the local mixer -- stays in sync when playback is on another device.",
+    defaults: () => ({ percent: 50 }),
+    fields: [{ kind: "number", key: "percent", label: "Percent", min: 0, max: 100, unit: "%" }],
+  },
   "volume.adjust": {
     label: "Adjust volume",
     group: "volume",

@@ -29,6 +29,8 @@ type SpotifyAPI interface {
 	Transfer(ctx context.Context, deviceID string, play bool) error
 	Devices(ctx context.Context) ([]spotify.Device, error)
 	Playlists(ctx context.Context) ([]spotify.Playlist, error)
+	CurrentVolume(ctx context.Context) (int, error)
+	SetVolume(ctx context.Context, percent int) error
 }
 
 // spotifyQueueDepth bounds how many pending Spotify actions
@@ -114,6 +116,8 @@ func (h *SpotifyHandlers) Register(r *Registry) {
 	r.Register(model.ActionSpotifyStartPlaylist, HandlerFunc(h.enqueue))
 	r.Register(model.ActionSpotifyQueueTrack, HandlerFunc(h.enqueue))
 	r.Register(model.ActionSpotifyTransferPlayback, HandlerFunc(h.enqueue))
+	r.Register(model.ActionSpotifyVolumeAdjust, HandlerFunc(h.enqueue))
+	r.Register(model.ActionSpotifyVolumeSet, HandlerFunc(h.enqueue))
 }
 
 // enqueue is every registered Handler: it captures what Run needs from
@@ -164,6 +168,10 @@ func (h *SpotifyHandlers) runJob(parent context.Context, job spotifyJob) {
 		err = h.queueTrack(ctx, a)
 	case model.SpotifyTransferPlaybackAction:
 		err = h.transferPlayback(ctx, a)
+	case model.SpotifyVolumeAdjustAction:
+		err = h.volumeAdjust(ctx, a)
+	case model.SpotifyVolumeSetAction:
+		err = h.volumeSet(ctx, a)
 	default:
 		err = fmt.Errorf("actions: spotify handler got unexpected %T", job.action)
 	}
@@ -270,6 +278,35 @@ func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyT
 	}
 	return fmt.Errorf("actions: spotify.transfer_playback: no device named %q (available: %s)",
 		a.DeviceName, strings.Join(names, ", "))
+}
+
+// volumeAdjust reads the active Spotify Connect device's current volume
+// fresh on every call (no local cache, unlike VolumeHandlers) so a level
+// changed from elsewhere -- another client, or Spotify Connect itself --
+// is always the adjustment's starting point rather than a stale echo of
+// this process's last write.
+func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction) error {
+	current, err := h.api.CurrentVolume(ctx)
+	if err != nil {
+		return err
+	}
+	next := clampPercent(float64(current) + a.StepPercent)
+	return h.api.SetVolume(ctx, next)
+}
+
+func (h *SpotifyHandlers) volumeSet(ctx context.Context, a model.SpotifyVolumeSetAction) error {
+	return h.api.SetVolume(ctx, clampPercent(a.Percent))
+}
+
+func clampPercent(v float64) int {
+	switch {
+	case v < 0:
+		return 0
+	case v > 100:
+		return 100
+	default:
+		return int(v + 0.5)
+	}
 }
 
 func (h *SpotifyHandlers) notify(summary, body string) {

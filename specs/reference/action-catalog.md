@@ -91,6 +91,8 @@ types themselves.
 | `spotify.start_playlist` | Done — M10 |
 | `spotify.queue_track` | Done — M10 |
 | `spotify.transfer_playback` | Done — M10 |
+| `spotify.volume_adjust` — relative step on the active Spotify Connect device's volume, via the Web API (not the local mixer) | Done — M10 |
+| `spotify.volume_set` — jump the active Spotify Connect device's volume to a preset level | Done — M10 |
 
 ## System
 
