@@ -33,7 +33,7 @@ milestones/   M01-M12: one file per unit of work, in dependency order.
 | [M05](milestones/M05-led-feedback.md) | LED feedback | Done | M04 |
 | [M06](milestones/M06-focus-tracking.md) | Focus tracking | Done | M04 |
 | [M07](milestones/M07-config-ui.md) | Config UI | Done (hand verification with hardware still open) | M04 |
-| [M08](milestones/M08-layers-groups-scenes.md) | Layers, groups, scenes | Not started | M04, M07 |
+| [M08](milestones/M08-layers-groups-scenes.md) | Layers, groups, scenes | Done (hand verification with hardware still open) | M04, M07 |
 | [M09](milestones/M09-media-transport-mpris.md) | Media transport (MPRIS) | Not started | M04 |
 | [M10](milestones/M10-spotify-web-api.md) | Spotify Web API | Not started | M09 |
 | [M11](milestones/M11-extended-actions.md) | Extended actions | Not started | M04 |

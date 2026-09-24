@@ -18,7 +18,7 @@ is in scope for that milestone; it doesn't need to happen earlier.
 | `volume.adjust` — the default | Implemented — [M03](../milestones/M03-audio-control.md)/[M04](../milestones/M04-mapping-engine-daemon.md) |
 | `volume.balance` — L/R pan | **Not planned.** `audio.Backend` has no per-channel volume write (`VolumeState.Channels` is read-only, used only to preserve balance across a `SetVolume`), and stereo balance isn't a feature this project wants. The type is kept (M01) but has no registered handler as of M04. |
 | `media.seek` | Has a type — [M09](../milestones/M09-media-transport-mpris.md) |
-| ★ `app.cycle` — scroll through currently-playing apps like a real mixer's channel strip | Planned — M08 |
+| ★ `app.cycle` — scroll through currently-playing apps like a real mixer's channel strip | Not yet scheduled — M08's own scope turned out to be layers/groups/scenes/solo/duck only; this wasn't part of it |
 | `sink.cycle` (scroll rather than one-button-per-device) | Planned — [M11](../milestones/M11-extended-actions.md) |
 | `brightness.adjust` | Planned — M11 |
 | `scroll.emulate` | Planned — M11 |
@@ -40,8 +40,8 @@ position rather than a press or a relative turn.
 |---|---|
 | `volume.mute_toggle` | Implemented — M03/M04 |
 | `volume.set` — jump to a preset level | Implemented — M03/M04 |
-| ★ `audio.solo_toggle` — mute everything but the target | Has a type — [M08](../milestones/M08-layers-groups-scenes.md) |
-| ★ `audio.duck_hold` — while held, drop everything except the target to a low percentage | Has a type — M08 |
+| ★ `audio.solo_toggle` — mute everything but the target | Implemented — [M08](../milestones/M08-layers-groups-scenes.md) |
+| ★ `audio.duck_hold` — while held, drop everything except the target to a low percentage | Implemented — M08 |
 | `audio.move_to_sink` — send an app's audio to another output | Planned — M11 |
 | ★ `sink.cycle_default` — headphones ↔ speakers ↔ HDMI on one button | Has a type — M11 |
 | `mic.mute_toggle` | Covered by `volume.mute_toggle` with a `default_source`/`source` target |
@@ -53,13 +53,14 @@ position rather than a press or a relative turn.
 
 | Action | Status |
 |---|---|
-| ★ `scene.apply` — recall a saved mix (e.g. "Meeting": music 10%, Discord 100%, mic live) | Has a type — M08 |
-| ★ `scene.save` — overwrite a scene with the current live mix | Has a type — M08 |
+| ★ `scene.apply` — recall a saved mix (e.g. "Meeting": music 10%, Discord 100%, mic live) | Implemented — M08 |
+| ★ `scene.save` — overwrite a scene with the current live mix | Implemented — M08 |
 
 Short press recalls, long press overwrites — the same short/hold
-gesture split used for `knob.assign_focused_app` — is the intended UX,
-decided at M08 design time, not baked into the action types themselves
-(a binding's `Gesture` already carries that distinction).
+gesture split used for `knob.assign_focused_app` — is the intended UX;
+a binding's `Gesture` already carries that distinction, so this is a
+config choice per binding, not something M08 baked into the action
+types themselves.
 
 ## Routing & binding
 
@@ -68,9 +69,9 @@ decided at M08 design time, not baked into the action types themselves
 | ★ `knob.assign_focused_app` — bind the triggering encoder to whatever app is currently focused | Has a type (M01) — [M06](../milestones/M06-focus-tracking.md) implements the handler; this is knobd's actual zero-configuration story now that the dynamic app pool (below) has been dropped |
 | `knob.clear` — remove the triggering control's binding | Has a type (M01) — not yet scheduled; M04 left it unimplemented (no handler registered) |
 | `knob.lock_toggle` — stop a knob responding to turns, to avoid accidental nudges | Has a type (M01) — not yet scheduled; M04 left it unimplemented (no handler registered) |
-| ★ `layer.momentary` — active only while held (side buttons, by default) | Has a type — M08 |
-| ★ `layer.latch` — active until switched again | Has a type — M08 |
-| `layer.cycle` — advance through a fixed layer order | Has a type — M08 |
+| ★ `layer.momentary` — active only while held (side buttons, by default) | Implemented — M08 |
+| ★ `layer.latch` — active until switched again | Implemented — M08 |
+| `layer.cycle` — advance through a fixed layer order | Implemented — M08 |
 
 ## Media (MPRIS)
 

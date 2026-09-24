@@ -70,7 +70,11 @@ repeated here):
    own inputs, so this is safe, not a race.
 6. `newConfigStore` wraps `eng` + the config file path so `PUT /config`
    and the SIGHUP reload path both funnel through `configStore.SetConfig`.
-7. `assignHandlers` registered against `store` + `focusProv`.
+7. `assignHandlers` registered against `store` + `focusProv`, then
+   `sceneHandlers` (`actions.NewSceneHandlers`, against `volumeHandlers`
+   + `store`) and `mixHandlers` (`actions.NewMixHandlers`, against
+   `volumeHandlers`) — M08's handler sets, following the same
+   register-before-`eng.Run` rule.
 8. `api.NewHub`, then adapters into `api.New`: `newAudioGraph`,
    `newCapabilitiesProvider`, `newLearnController` — each is a small
    point-of-use interface adapter defined in `cmd/knobd` itself (see
@@ -108,6 +112,27 @@ needs to reach `hub` before `hub` exists.
    current structure).
 6. Update `specs/reference/action-catalog.md` and the owning milestone
    spec's checklist.
+
+If the handler needs dispatch-time state only `engine` has (the config's
+`AppMatchers`/`AppGroups`, the live stream/focus graph) beyond a single
+resolved `Target` — M08's `scene.apply`/`scene.save` (several targets
+per scene) and `audio.solo_toggle`/`audio.duck_hold` ("every other
+known stream") are the examples — the action executes one of two ways
+instead of a plain `Registry` dispatch:
+- **State the handler itself must own** (M08's three `layer.*` actions,
+  which mutate `engine.layerState`) is executed *inline* in
+  `engine.dispatchGesture`, never registered with `actions.Registry` at
+  all. `engine.InlineActionTypes()` lists these so `cmd/knobd`'s
+  capabilities adapter still reports them as implemented.
+- **State the handler needs but doesn't own** goes through `actions.
+  Registry` as normal, but `engine` resolves the extra pieces at
+  dispatch time and carries them on `actions.Invocation` (see
+  `Scene`/`SceneRefs` and `Others`'s doc comments there) via a
+  dedicated `engine` dispatch helper (`dispatchScene`,
+  `dispatchWithOthers`) instead of the generic `dispatchResolvedAction`
+  path. The handler must use what `Invocation` carries, never
+  re-resolve — the same rule `Invocation.Refs` already established in
+  M04.
 
 **Add/change a config field** (anything under `model.Config`):
 1. Change the type in `daemon/internal/model`.
@@ -163,7 +188,7 @@ commit the result — CI fails otherwise (same gate as `make schema`).
 | M05 | LED feedback: `engine.NotifyLEDDirty`/`RepaintLEDs`, `device.Codec` LED encoding |
 | M06 | `daemon/internal/focus` (`Provider`, KWin script per ADR 0003), `daemon/internal/proctree`, assign-focused-app action |
 | M07 | `ui/` (Tauri + React config app), `api.Hub`/SSE (ADR 0004 Update), `daemon/internal/schema` + `docs/*.json` generation |
-| M08 | Layers, groups, scenes — not started; will extend `model`, `engine`'s binding resolution |
+| M08 | Layers, groups, scenes, solo/duck — done; `engine.layerState`/`dispatchGesture`, `resolver.resolveGroup`, `actions.SceneHandlers`/`MixHandlers` |
 | M09 | Media transport (MPRIS) — not started; new `actions` handler set |
 | M10 | Spotify Web API — not started; depends on M09 |
 | M11 | Extended actions — not started; new `actions` handler sets |
