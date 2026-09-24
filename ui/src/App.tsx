@@ -4,6 +4,7 @@ import styles from "./App.module.css";
 import { AppsView } from "./components/apps/AppsView";
 import { Banner } from "./components/common/Banner";
 import { StatusBar } from "./components/common/StatusBar";
+import { MediaView } from "./components/media/MediaView";
 import { Panel } from "./components/panel/Panel";
 import { ProfilesView } from "./components/profiles/ProfilesView";
 import { ScenesView } from "./components/scenes/ScenesView";
@@ -13,13 +14,14 @@ import { CapabilitiesProvider } from "./state/CapabilitiesContext";
 import { ConfigProvider, useConfig } from "./state/ConfigContext";
 import { ConnectionProvider } from "./state/ConnectionContext";
 
-const VIEWS = ["panel", "apps", "scenes", "profiles", "diagnostics"] as const;
+const VIEWS = ["panel", "apps", "scenes", "media", "profiles", "diagnostics"] as const;
 type View = (typeof VIEWS)[number];
 
 const VIEW_LABELS: Record<View, string> = {
   panel: "Panel",
   apps: "Apps & Groups",
   scenes: "Scenes",
+  media: "Media",
   profiles: "Profiles",
   diagnostics: "Diagnostics",
 };
@@ -53,6 +55,8 @@ function ViewContent({ view }: { view: View }) {
       return <AppsView />;
     case "scenes":
       return <ScenesView />;
+    case "media":
+      return <MediaView />;
     case "profiles":
       return <ProfilesView />;
     case "diagnostics":

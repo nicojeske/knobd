@@ -34,7 +34,8 @@ export type FieldSpec<P> = {
     | (FieldBase<P, K> & { kind: "enum"; options: readonly string[] })
     | (FieldBase<P, K> & { kind: "stringList" })
     | (FieldBase<P, K> & { kind: "numberList" })
-    | (FieldBase<P, K> & { kind: "scene" });
+    | (FieldBase<P, K> & { kind: "scene" })
+    | (FieldBase<P, K> & { kind: "player" });
 }[Extract<keyof P, string>];
 
 export interface ActionSpec<T extends ActionType> {
@@ -107,14 +108,26 @@ export const ACTION_SPECS: { readonly [T in ActionType]: ActionSpec<T> } = {
     defaults: () => ({ layer: 1 }),
     fields: [{ kind: "number", key: "layer", label: "Layer", min: 0, step: 1 }],
   },
+  "media.now_playing": {
+    label: "Show now playing",
+    group: "media",
+    defaults: () => ({}),
+    fields: [{ kind: "player", key: "playerRef", label: "Player" }],
+  },
   "media.seek": {
     label: "Seek",
     group: "media",
-    defaults: () => ({ seekMs: 5000 }),
+    defaults: () => ({ seekMs: 2000 }),
     fields: [
       { kind: "number", key: "seekMs", label: "Seek amount", unit: "ms" },
-      { kind: "text", key: "playerRef", label: "Player (optional)" },
+      { kind: "player", key: "playerRef", label: "Player" },
     ],
+  },
+  "media.target_cycle": {
+    label: "Cycle target player",
+    group: "media",
+    defaults: () => ({}),
+    fields: [],
   },
   "media.transport": {
     label: "Transport control",
@@ -127,7 +140,7 @@ export const ACTION_SPECS: { readonly [T in ActionType]: ActionSpec<T> } = {
         label: "Command",
         options: ["play_pause", "next", "previous", "shuffle_toggle", "repeat_cycle"],
       },
-      { kind: "text", key: "playerRef", label: "Player (optional)" },
+      { kind: "player", key: "playerRef", label: "Player" },
     ],
   },
   "mic.push_to_mute": {

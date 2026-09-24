@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ACTION_SPECS, type ActionType, type FieldSpec, type ParamsOf } from "../../actions/specs";
 import { clearField, parseOptionalNumber, setField } from "../../config/fields";
 import { useConfig } from "../../state/ConfigContext";
+import { useConnection } from "../../state/ConnectionContext";
 import type { Target } from "../../types/config";
 import styles from "./Field.module.css";
 import { TargetField } from "./TargetField";
@@ -172,7 +173,74 @@ function FieldRow<P extends object>({
         />
       );
     }
+    case "player": {
+      const raw = params[field.key];
+      const value = typeof raw === "string" ? raw : "";
+      return (
+        <PlayerFieldRow
+          label={field.label}
+          value={value}
+          onChange={(next) => {
+            onChange(
+              next === "" ? clearField(params, field.key) : setField(params, field.key, next as P[typeof field.key]),
+            );
+          }}
+        />
+      );
+    }
   }
+}
+
+/** PlayerFieldRow picks an MPRIS player by ref (see media.PlayerInfo.
+ * Ref) from the live GET /state player list -- an empty value means
+ * "whichever player is currently selected" (PlayerRef's own empty-string
+ * meaning, see model.MediaTransportAction). A saved ref that matches no
+ * currently-running player (the app isn't open right now) still shows as
+ * its own option, the same "known option, or type it yourself" shape
+ * SceneFieldRow uses for a deleted scene. */
+function PlayerFieldRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const { state } = useConnection();
+  const players = state?.media.players ?? [];
+  const knownOption = value === "" || players.some((p) => p.ref === value);
+
+  return (
+    <div className={styles.row}>
+      <label>{label}</label>
+      {knownOption ? (
+        <select
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        >
+          <option value="">Selected player</option>
+          {players.map((p) => (
+            <option key={p.ref} value={p.ref}>
+              {p.identity ?? p.ref}
+              {p.ignored ? " (ignored)" : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          placeholder="player ref"
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 /** SceneFieldRow picks a scene by id from config.scenes -- falling back

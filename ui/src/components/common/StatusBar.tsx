@@ -32,7 +32,8 @@ export function StatusBar() {
     );
   }
 
-  const { device, audio, focus, profile, learn } = state;
+  const { device, audio, focus, profile, learn, media } = state;
+  const selectedPlayer = media.players.find((p) => p.busName === media.selected);
 
   return (
     <div className={styles.bar}>
@@ -47,6 +48,14 @@ export function StatusBar() {
       <span className={styles.item}>
         <span className={dotClass(focus.available ? true : "warn")} />
         {focus.available ? (focus.resourceClass ?? "Focus tracking") : "Focus tracking unavailable"}
+      </span>
+      <span className={styles.item}>
+        <span className={dotClass(media.available ? true : "warn")} />
+        {media.available
+          ? selectedPlayer
+            ? `Media: ${selectedPlayer.identity ?? selectedPlayer.ref} · ${selectedPlayer.status ?? "?"}`
+            : "Media: no player"
+          : "Media transport unavailable"}
       </span>
       <span className={styles.spacer} />
       {learn.active ? <span className={styles.item}>Learning…</span> : null}
