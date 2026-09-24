@@ -195,6 +195,25 @@ developer application — see Risks):
   deletes the stored refresh token and reports `ErrNotAuthorized`, so the
   Spotify tab shows "Connect" again instead of repeating the same error
   forever.
+- **`spotify.Service.Login` takes no `ctx` parameter, deliberately** --
+  found by hand-testing the real flow: `api`'s `handleSpotifyLogin`
+  originally threaded `r.Context()` (POST /spotify/login's own request
+  context) all the way into `Auth.StartLogin`, which derives the login
+  flow's lifetime from whatever context it's given. Since Go cancels a
+  request's context the moment its handler returns, and
+  `handleSpotifyLogin` returns as soon as the authorize URL is built
+  (well before the user has even seen the browser tab), the loopback
+  listener was being torn down within milliseconds of `POST
+  /spotify/login` answering -- Firefox then couldn't connect when
+  Spotify redirected back, seconds later. `spotify.Service` now stores
+  the daemon's own lifetime context (`ctx` in `cmd/knobd`'s
+  `runDaemon`, canceled on SIGINT/SIGTERM) at construction and always
+  drives `Login`'s flow from that, never from a caller's; the caller-
+  facing `api.SpotifyProvider.Login(ctx)`/`cmd/knobd`'s
+  `spotifyProvider.Login(ctx)` still take a `ctx` parameter (interface
+  consistency with `Playlists`/`Devices`, which do need one for their
+  own request-scoped calls), but it is unused by `Login` specifically,
+  and documented as such.
 
 ## Risks & open questions
 

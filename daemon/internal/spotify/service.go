@@ -58,16 +58,28 @@ type Service struct {
 	logger   *slog.Logger
 	onChange func()
 
+	// ctx is the daemon's own lifetime context (runCtx in cmd/knobd),
+	// not any individual API call's. Login's OAuth flow must keep
+	// running -- the loopback listener stays up, waiting on the user's
+	// browser -- well after POST /spotify/login's own handler has
+	// returned; using that request's r.Context() here would cancel the
+	// flow (and tear down the listener) the instant the HTTP response
+	// was written, before the user could ever complete the redirect.
+	// See specs/milestones/M10-spotify-web-api.md's Design refinements.
+	ctx context.Context
+
 	mu     sync.Mutex
 	status Status
 }
 
-// NewService builds a Service. clientID is read fresh on every call
-// (Config.Spotify.ClientID, via cmd/knobd's configStore, the same shape
-// media's ignorePlayers uses). store is where the refresh token lives
-// -- a *dbusSecretStore (NewSecretService) in production, a
-// FakeSecretStore in tests.
-func NewService(clientID func() string, store SecretStore, opts ServiceOptions) *Service {
+// NewService builds a Service bound to ctx -- the daemon's own lifetime
+// context, canceled at shutdown, not any individual caller's (see the
+// ctx field's doc comment for why this matters for Login specifically).
+// clientID is read fresh on every call (Config.Spotify.ClientID, via
+// cmd/knobd's configStore, the same shape media's ignorePlayers uses).
+// store is where the refresh token lives -- a *dbusSecretStore
+// (NewSecretService) in production, a FakeSecretStore in tests.
+func NewService(ctx context.Context, clientID func() string, store SecretStore, opts ServiceOptions) *Service {
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -92,6 +104,7 @@ func NewService(clientID func() string, store SecretStore, opts ServiceOptions) 
 		client:   client,
 		logger:   logger,
 		onChange: opts.OnChange,
+		ctx:      ctx,
 	}
 	return s
 }
@@ -109,13 +122,13 @@ func (s *Service) Client() *Client { return s.client }
 // mirrors media.NewTracker's best-effort, never-blocks-startup
 // posture. A missing Client ID or refresh token is not an error, just
 // "not connected yet."
-func (s *Service) ValidateStoredToken(ctx context.Context) {
+func (s *Service) ValidateStoredToken() {
 	account := s.clientID()
 	if account == "" || !s.tokens.Authorized(account) {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
 		defer cancel()
 		user, err := s.client.Me(ctx)
 		s.mu.Lock()
@@ -145,13 +158,19 @@ func (s *Service) Status() Status {
 // the authorize URL for cmd/knobd's API handler to both try to
 // xdg-open and hand back to the UI as a fallback. Returns
 // ErrUnavailable if no Client ID is configured.
-func (s *Service) Login(ctx context.Context) (string, error) {
+//
+// Deliberately takes no ctx parameter: the flow this starts must
+// outlive whatever request or caller invoked Login (see the ctx
+// field's doc comment) -- it runs against s.ctx, the daemon's own
+// lifetime context, until the user completes it, it times out, or the
+// daemon shuts down.
+func (s *Service) Login() (string, error) {
 	account := s.clientID()
 	if account == "" {
 		return "", ErrUnavailable
 	}
 
-	authorizeURL, err := s.auth.StartLogin(ctx, account, func(tokens Tokens, err error) {
+	authorizeURL, err := s.auth.StartLogin(s.ctx, account, func(tokens Tokens, err error) {
 		s.mu.Lock()
 		s.status.LoginInProgress = false
 		s.status.LoginURL = ""

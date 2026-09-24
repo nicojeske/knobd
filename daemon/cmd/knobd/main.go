@@ -277,7 +277,13 @@ func runDaemon(args []string) error {
 			spotifySecrets = ss
 		}
 	}
-	spotifySvc := spotify.NewService(spotifyClientID, spotifySecrets, spotify.ServiceOptions{
+	// ctx (this function's own daemon-lifetime context, canceled on
+	// SIGINT/SIGTERM) is passed here, not runCtx (constructed later) or
+	// any HTTP request's r.Context() -- Login's OAuth flow must keep its
+	// loopback listener up well after POST /spotify/login's own handler
+	// returns, until the user completes the browser redirect. See
+	// spotify.Service's ctx field's doc comment.
+	spotifySvc := spotify.NewService(ctx, spotifyClientID, spotifySecrets, spotify.ServiceOptions{
 		Logger: logger,
 		OnChange: func() {
 			if hub != nil {
@@ -289,7 +295,7 @@ func runDaemon(args []string) error {
 	// stored under the current Client ID is still good -- so a daemon
 	// restart doesn't show "Connect" while a perfectly good token is
 	// sitting in the Secret Service.
-	spotifySvc.ValidateStoredToken(ctx)
+	spotifySvc.ValidateStoredToken()
 	// Reuses mediaNotifier (org.freedesktop.Notifications, same session
 	// bus) for like_toggle/add_to_playlist/remove_from_playlist's result
 	// notifications -- no reason for a second Notifier implementation.

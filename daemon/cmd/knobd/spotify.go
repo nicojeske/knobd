@@ -13,7 +13,7 @@ import (
 // spotifyService is the slice of *spotify.Service spotifyProvider needs
 // -- point-of-use, matching every other adapter in this package.
 type spotifyService interface {
-	Login(ctx context.Context) (string, error)
+	Login() (string, error)
 	Logout() error
 	Status() spotify.Status
 	Client() *spotify.Client
@@ -49,9 +49,14 @@ func (p *spotifyProvider) xdgOpen(url string) {
 	}
 }
 
-// Login implements api.SpotifyProvider.
+// Login implements api.SpotifyProvider. ctx (the POST /spotify/login
+// request's own context) is deliberately not threaded into
+// p.svc.Login(): the OAuth flow it starts must outlive that request --
+// see spotify.Service's ctx field's doc comment for why a request-
+// scoped context caused the callback listener to be torn down before
+// the user could ever complete the redirect.
 func (p *spotifyProvider) Login(ctx context.Context) (string, error) {
-	url, err := p.svc.Login(ctx)
+	url, err := p.svc.Login()
 	if err != nil {
 		if errors.Is(err, spotify.ErrUnavailable) {
 			return "", api.ErrSpotifyNotConfigured

@@ -11,7 +11,7 @@ import (
 )
 
 func TestServiceStatusUnconfiguredWithoutClientID(t *testing.T) {
-	s := NewService(func() string { return "" }, NewFakeSecretStore(), ServiceOptions{})
+	s := NewService(context.Background(), func() string { return "" }, NewFakeSecretStore(), ServiceOptions{})
 	status := s.Status()
 	if status.Configured {
 		t.Error("Configured should be false with no Client ID")
@@ -37,21 +37,22 @@ func TestServiceLoginFlow(t *testing.T) {
 	}))
 	defer tokenSrv.Close()
 
+	// A canceled-on-cleanup context, not context.Background(): NewService
+	// binds this to Login's OAuth flow (Auth.LoopbackPort is a fixed
+	// port -- see its doc comment), which must be freed before another
+	// test in this package tries to bind it too.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
 	store := NewFakeSecretStore()
 	changed := make(chan struct{}, 16)
-	s := NewService(func() string { return "client-1" }, store, ServiceOptions{
+	s := NewService(ctx, func() string { return "client-1" }, store, ServiceOptions{
 		OnChange:   func() { changed <- struct{}{} },
 		TokenURL:   tokenSrv.URL,
 		APIBaseURL: apiSrv.URL,
 	})
 
-	// A canceled-on-cleanup context, not context.Background(): Login
-	// binds Auth.LoopbackPort, a fixed port (see its doc comment), which
-	// must be freed before another test in this package tries to bind
-	// it too.
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	authorizeURL, err := s.Login(ctx)
+	authorizeURL, err := s.Login()
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -98,7 +99,7 @@ func (f *FakeSecretStore) tokenExists(account string) bool {
 func TestServiceLogout(t *testing.T) {
 	store := NewFakeSecretStore()
 	store.Set("client-1", "rt1")
-	s := NewService(func() string { return "client-1" }, store, ServiceOptions{})
+	s := NewService(context.Background(), func() string { return "client-1" }, store, ServiceOptions{})
 
 	if err := s.Logout(); err != nil {
 		t.Fatalf("Logout: %v", err)
@@ -123,13 +124,13 @@ func TestServiceValidateStoredTokenSuccess(t *testing.T) {
 	// token endpoint) so ValidateStoredToken's Me() call succeeds
 	// without needing a token server too.
 	changed := make(chan struct{}, 4)
-	s := NewService(func() string { return "client-1" }, store, ServiceOptions{
+	s := NewService(context.Background(), func() string { return "client-1" }, store, ServiceOptions{
 		OnChange:   func() { changed <- struct{}{} },
 		APIBaseURL: apiSrv.URL,
 	})
 	s.tokens.SetTokens("client-1", Tokens{AccessToken: "at1", ExpiresAt: time.Now().Add(time.Hour)})
 
-	s.ValidateStoredToken(context.Background())
+	s.ValidateStoredToken()
 	waitForChange(t, changed)
 
 	status := s.Status()
