@@ -32,6 +32,11 @@ import (
 // which was the entire reason ctx existed on this method).
 type resolver struct {
 	matchers map[string]model.AppMatcher
+	// groups backs resolveGroup: a TargetGroup unions resolveApp over
+	// every matcher the group names (see model.AppGroup's doc comment
+	// and specs/milestones/M08-layers-groups-scenes.md's Design
+	// section).
+	groups map[string]model.AppGroup
 
 	streams map[string]audio.Stream
 	sinks   []audio.Device
@@ -85,21 +90,28 @@ func newResolver(proc proctree.Walker, log *slog.Logger) *resolver {
 	}
 	return &resolver{
 		matchers: make(map[string]model.AppMatcher),
+		groups:   make(map[string]model.AppGroup),
 		streams:  make(map[string]audio.Stream),
 		proc:     proc,
 		log:      log,
 	}
 }
 
-// setConfig rebuilds the matcher table from cfg. The stream/device cache
-// is untouched — a config change doesn't invalidate what's actually
-// playing.
+// setConfig rebuilds the matcher/group tables from cfg. The stream/
+// device cache is untouched — a config change doesn't invalidate what's
+// actually playing.
 func (r *resolver) setConfig(cfg model.Config) {
 	matchers := make(map[string]model.AppMatcher, len(cfg.AppMatchers))
 	for _, m := range cfg.AppMatchers {
 		matchers[m.ID] = m
 	}
 	r.matchers = matchers
+
+	groups := make(map[string]model.AppGroup, len(cfg.AppGroups))
+	for _, g := range cfg.AppGroups {
+		groups[g.ID] = g
+	}
+	r.groups = groups
 }
 
 // setFocused updates the cached focused-application value that
@@ -149,7 +161,7 @@ func (r *resolver) resolve(t model.Target) ([]audio.Ref, error) {
 	case model.TargetFocused:
 		return r.resolveFocused()
 	case model.TargetGroup:
-		return nil, fmt.Errorf("engine: resolve group %q: %w (see specs/milestones/M08-layers-groups-scenes.md)", t.Ref, errTargetUnsupported)
+		return r.resolveGroup(t.Ref)
 	default:
 		return nil, fmt.Errorf("engine: resolve target: unknown kind %q", t.Kind)
 	}
@@ -170,6 +182,35 @@ func (r *resolver) resolveApp(matcherID string) ([]audio.Ref, error) {
 		return nil, fmt.Errorf("engine: resolve app: unknown app matcher %q", matcherID)
 	}
 	return r.matchStreams(matcher)
+}
+
+// resolveGroup unions resolveApp over every matcher groupID names,
+// de-duplicating by audio.Ref in case two matchers in the same group
+// somehow match the same stream (see model.AppGroup's doc comment).
+// model.Config.Validate already guarantees every AppGroup.MatcherIDs
+// entry names a real AppMatcher, but that check is config-wide, not
+// re-verified here, so an unknown matcher ID still surfaces as an
+// error rather than being silently skipped.
+func (r *resolver) resolveGroup(groupID string) ([]audio.Ref, error) {
+	group, ok := r.groups[groupID]
+	if !ok {
+		return nil, fmt.Errorf("engine: resolve group: unknown app group %q", groupID)
+	}
+	var refs []audio.Ref
+	seen := make(map[audio.Ref]bool)
+	for _, matcherID := range group.MatcherIDs {
+		matched, err := r.resolveApp(matcherID)
+		if err != nil {
+			return nil, fmt.Errorf("engine: resolve group %q: %w", groupID, err)
+		}
+		for _, ref := range matched {
+			if !seen[ref] {
+				seen[ref] = true
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs, nil
 }
 
 func (r *resolver) matchStreams(matcher model.AppMatcher) ([]audio.Ref, error) {

@@ -11,18 +11,24 @@ type fakeRegistry struct{ types []model.ActionType }
 
 func (f *fakeRegistry) ActionTypes() []model.ActionType { return f.types }
 
-func TestCapabilitiesExcludesGroupTargetKind(t *testing.T) {
+// TestCapabilitiesIncludesGroupTargetKind pins M08's group resolution
+// landing: SupportedTargetKinds no longer excludes "group" (contrast
+// the pre-M08 version of this test, which asserted the opposite).
+func TestCapabilitiesIncludesGroupTargetKind(t *testing.T) {
 	c := newCapabilitiesProvider(&fakeRegistry{types: []model.ActionType{model.ActionVolumeAdjust}})
 	got := c.Capabilities()
 
+	found := false
 	for _, k := range got.SupportedTargetKinds {
 		if k == model.TargetGroup {
-			t.Error("SupportedTargetKinds includes \"group\", which does not resolve until M08")
+			found = true
 		}
 	}
-	// Every other TargetKind should still be listed.
-	if len(got.SupportedTargetKinds) != len(model.TargetKinds())-1 {
-		t.Errorf("SupportedTargetKinds has %d entries, want %d (all but group)", len(got.SupportedTargetKinds), len(model.TargetKinds())-1)
+	if !found {
+		t.Error("SupportedTargetKinds does not include \"group\"; group resolution landed in M08")
+	}
+	if len(got.SupportedTargetKinds) != len(model.TargetKinds()) {
+		t.Errorf("SupportedTargetKinds has %d entries, want %d (every TargetKind)", len(got.SupportedTargetKinds), len(model.TargetKinds()))
 	}
 }
 

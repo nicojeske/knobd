@@ -49,19 +49,9 @@ func (c *capabilitiesProvider) Capabilities() api.Capabilities {
 	}
 	sort.Slice(actionTypes, func(i, j int) bool { return actionTypes[i] < actionTypes[j] })
 
-	// TargetGroup is excluded until group resolution lands (see
-	// engine/resolver.go's TargetGroup case).
-	var targetKinds []model.TargetKind
-	for _, k := range model.TargetKinds() {
-		if k == model.TargetGroup {
-			continue
-		}
-		targetKinds = append(targetKinds, k)
-	}
-
 	return api.Capabilities{
 		ImplementedActions:   actionTypes,
-		SupportedTargetKinds: targetKinds,
+		SupportedTargetKinds: model.TargetKinds(),
 		Features: api.Features{
 			Layers: true,
 			Scenes: false,

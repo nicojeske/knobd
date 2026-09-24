@@ -734,6 +734,54 @@ func TestEngineRunLayerCycleAdvancesWithNoExplicitOrder(t *testing.T) {
 	wantLayer(0) // wraps
 }
 
+// TestEngineRunGroupBindingControlsEveryMatcherSimultaneously is M08's
+// second acceptance criterion, driven through the full Run loop: a
+// TargetGroup binding's turn adjusts every stream belonging to every
+// matcher in that group, in one dispatch.
+func TestEngineRunGroupBindingControlsEveryMatcherSimultaneously(t *testing.T) {
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	vesktopRef := audio.Ref{Kind: audio.RefStream, ID: "1"}
+	javaRef := audio.Ref{Kind: audio.RefStream, ID: "2"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		AppMatchers: []model.AppMatcher{
+			{ID: "vesktop", AppNames: []string{"vesktop"}},
+			{ID: "java-app", NodeNames: []string{"java"}},
+		},
+		AppGroups: []model.AppGroup{
+			{ID: "voice", MatcherIDs: []string{"vesktop", "java-app"}},
+		},
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetGroup, Ref: "voice"}, StepPercent: 2}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngine(cfg, clk)
+	backend.Seed(nil, nil, []audio.Stream{
+		{ID: "1", Direction: audio.StreamPlayback, Props: map[string]string{"application.name": "vesktop"}},
+		{ID: "2", Direction: audio.StreamPlayback, Props: map[string]string{"node.name": "java"}},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	waitForResolved(t, e, enc1, model.GestureTurn)
+
+	mustInject(t, ctx, port, midi.Message{Status: 0xB0, Data1: 16, Data2: 3, Time: clk.Now()}) // +3 detents
+
+	waitFor(t, 2*time.Second, func() bool {
+		v, err := backend.GetVolume(context.Background(), vesktopRef)
+		j, jerr := backend.GetVolume(context.Background(), javaRef)
+		return err == nil && jerr == nil && v.Percent == 106 && j.Percent == 106
+	})
+}
+
 func TestEngineRunAudioSubscriptionClosedIsFatal(t *testing.T) {
 	clk := newTestClock(time.Unix(0, 0))
 	e, _, backend := newTestEngine(model.Config{ActiveProfileID: "default", Profiles: []model.Profile{{ID: "default"}}}, clk)

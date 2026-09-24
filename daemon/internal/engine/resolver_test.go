@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/njeske/knobd/internal/audio"
@@ -135,12 +134,70 @@ func TestResolverAllStreams(t *testing.T) {
 	}
 }
 
-func TestResolverGroupUnsupported(t *testing.T) {
+// TestResolverGroupUnionsMatchersAndDeduplicates is M08's second
+// acceptance criterion: a TargetGroup binding controls every stream
+// belonging to every matcher in that group simultaneously, and a stream
+// two matchers in the group both happen to match is only counted once.
+func TestResolverGroupUnionsMatchersAndDeduplicates(t *testing.T) {
 	r := newResolver(proctree.Walker{}, nil)
 	seedResolver(t, r)
-	_, err := r.resolve(model.Target{Kind: model.TargetGroup, Ref: "voice"})
-	if !errors.Is(err, errTargetUnsupported) {
-		t.Fatalf("resolve group: err = %v, want errTargetUnsupported", err)
+	r.setConfig(model.Config{
+		AppMatchers: []model.AppMatcher{
+			{ID: "vesktop", AppNames: []string{"vesktop"}},
+			{ID: "java-app", NodeNames: []string{"java"}},
+			// Overlaps vesktop entirely -- exercises de-duplication.
+			{ID: "vesktop-again", DesktopIDs: []string{"vesktop"}},
+		},
+		AppGroups: []model.AppGroup{
+			{ID: "voice", MatcherIDs: []string{"vesktop", "java-app", "vesktop-again"}},
+		},
+	})
+
+	refs, err := r.resolve(model.Target{Kind: model.TargetGroup, Ref: "voice"})
+	if err != nil {
+		t.Fatalf("resolve group: %v", err)
+	}
+
+	want := map[audio.Ref]bool{
+		{Kind: audio.RefStream, ID: "118"}: true,
+		{Kind: audio.RefStream, ID: "128"}: true,
+		{Kind: audio.RefStream, ID: "112"}: true,
+	}
+	if len(refs) != len(want) {
+		t.Fatalf("resolve group: got %d refs, want %d (%+v)", len(refs), len(want), refs)
+	}
+	seen := make(map[audio.Ref]bool)
+	for _, ref := range refs {
+		if seen[ref] {
+			t.Errorf("resolve group: ref %+v appeared more than once", ref)
+		}
+		seen[ref] = true
+		if !want[ref] {
+			t.Errorf("resolve group: unexpected ref %+v", ref)
+		}
+	}
+}
+
+func TestResolverGroupUnknownID(t *testing.T) {
+	r := newResolver(proctree.Walker{}, nil)
+	seedResolver(t, r)
+	r.setConfig(model.Config{})
+	if _, err := r.resolve(model.Target{Kind: model.TargetGroup, Ref: "does-not-exist"}); err == nil {
+		t.Fatal("resolve group: expected an error for an unknown group id")
+	}
+}
+
+func TestResolverGroupUnknownMatcherWithinGroup(t *testing.T) {
+	r := newResolver(proctree.Walker{}, nil)
+	seedResolver(t, r)
+	// Bypasses model.Config.Validate's own cross-reference check (which
+	// would normally catch this) to exercise resolveGroup's own
+	// defensive path -- config that reached the engine some other way.
+	r.groups = map[string]model.AppGroup{
+		"voice": {ID: "voice", MatcherIDs: []string{"does-not-exist"}},
+	}
+	if _, err := r.resolve(model.Target{Kind: model.TargetGroup, Ref: "voice"}); err == nil {
+		t.Fatal("resolve group: expected an error for a group referencing an unknown matcher")
 	}
 }
 
