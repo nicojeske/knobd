@@ -86,7 +86,7 @@ spotifyService is the slice of *spotify.Service spotifyProvider needs
 -- point-of-use, matching every other adapter in this package.
 
 ```go
-Login(ctx context.Context) (string, error)
+Login() (string, error)
 Logout() error
 Status() spotify.Status
 Client() *spotify.Client
@@ -6002,11 +6002,11 @@ func (e *APIError) Error() string
 ### `Auth` (struct)
 
 Auth drives the PKCE authorization-code flow over a one-shot loopback
-HTTP listener (specs/adr's redirect-URI rules: 127.0.0.1, not
-"localhost", with no fixed port registered -- see
-specs/milestones/M10-spotify-web-api.md's Design refinements). Only
-one login flow runs at a time; starting a new one cancels whatever
-flow was in progress.
+HTTP listener on the fixed LoopbackPort (127.0.0.1, not "localhost" --
+see specs/milestones/M10-spotify-web-api.md's Design refinements for
+why the port is fixed rather than kernel-assigned). Only one login
+flow runs at a time; starting a new one cancels whatever flow was in
+progress.
 
 ```go
 type Auth struct {
@@ -6155,6 +6155,16 @@ type Service struct {
 	logger   *slog.Logger
 	onChange func()
 
+	// ctx is the daemon's own lifetime context (runCtx in cmd/knobd),
+	// not any individual API call's. Login's OAuth flow must keep
+	// running -- the loopback listener stays up, waiting on the user's
+	// browser -- well after POST /spotify/login's own handler has
+	// returned; using that request's r.Context() here would cancel the
+	// flow (and tear down the listener) the instant the HTTP response
+	// was written, before the user could ever complete the redirect.
+	// See specs/milestones/M10-spotify-web-api.md's Design refinements.
+	ctx context.Context
+
 	mu     sync.Mutex
 	status Status
 }
@@ -6164,10 +6174,10 @@ methods:
 
 ```go
 func (s *Service) Client() *Client
-func (s *Service) Login(ctx context.Context) (string, error)
+func (s *Service) Login() (string, error)
 func (s *Service) Logout() error
 func (s *Service) Status() Status
-func (s *Service) ValidateStoredToken(ctx context.Context)
+func (s *Service) ValidateStoredToken()
 func (s *Service) notify()
 ```
 
@@ -6340,8 +6350,8 @@ func (s *dbusSecretStore) unlock(path dbus.ObjectPath) error
 
 ```go
 type loginSession struct {
-	listener net.Listener
-	cancel   context.CancelFunc
+	server *http.Server
+	cancel context.CancelFunc
 }
 ```
 
@@ -6423,16 +6433,18 @@ func TestTokenManagerRefreshesWhenExpired(t *testing.T)
 func TestTokenManagerSetTokensPrimesCache(t *testing.T)
 func TestURI(t *testing.T)
 func URI(kind, id string) string
+func bindLoopbackPort() (net.Listener, error)
 func challengeFromVerifier(verifier string) string
 func displayName(u User) string
 func fakeTokenServer(t *testing.T, handle func(w http.ResponseWriter, form url.Values)) *httptest.Server
 func generateVerifier() (string, error)
 func newTestTokenManager(t *testing.T, tokenSrv *httptest.Server) (*TokenManager, *FakeSecretStore)
+func startLoginForTest(t *testing.T, auth *Auth, clientID string, onComplete func(Tokens, error)) string
 func waitForChange(t *testing.T, ch chan struct{})
 func writeCallbackPage(w http.ResponseWriter, ok bool)
 ```
 
-**consts/vars:** `DefaultAPIBaseURL`, `DefaultAuthorizeURL`, `DefaultTokenURL`, `ErrNoActiveDevice`, `ErrNotAuthorized`, `ErrNothingPlaying`, `ErrUnavailable`, `collectionIface`, `farFuture`, `idPattern`, `itemIface`, `loginTimeout`, `promptIface`, `promptTimeout`, `scopes`, `secretApplication`, `secretService`, `secretsBasePath`, `secretsBusName`, `serviceIface`, `tokenSkew`, `uriPattern`, `urlPattern`
+**consts/vars:** `DefaultAPIBaseURL`, `DefaultAuthorizeURL`, `DefaultTokenURL`, `ErrNoActiveDevice`, `ErrNotAuthorized`, `ErrNothingPlaying`, `ErrUnavailable`, `LoopbackPort`, `collectionIface`, `farFuture`, `idPattern`, `itemIface`, `loginTimeout`, `promptIface`, `promptTimeout`, `scopes`, `secretApplication`, `secretService`, `secretsBasePath`, `secretsBusName`, `serviceIface`, `tokenSkew`, `uriPattern`, `urlPattern`
 
 **tests:** `auth_test.go`, `client_test.go`, `id_test.go`, `service_test.go`, `token_test.go`
 
