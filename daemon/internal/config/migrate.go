@@ -21,11 +21,23 @@ var currentSchemaVersion = model.CurrentSchemaVersion
 // model.Config, any field an old version had and the current struct
 // doesn't is already gone — a migration that needs to read, rename, or
 // restructure such a field has to run before that decode, not after.
-// There is deliberately no migration registered yet, since
-// model.CurrentSchemaVersion is 1 — this is where the first one goes the
-// day that number becomes 2. Keep old migrations forever; a user's
-// config.json may not have been opened by a newer knobd in a long time.
-var migrations = []func(map[string]any) (map[string]any, error){}
+// Keep old migrations forever; a user's config.json may not have been
+// opened by a newer knobd in a long time.
+var migrations = []func(map[string]any) (map[string]any, error){
+	migrateV1toV2,
+}
+
+// migrateV1toV2 adds Config.Media (M09), absent from every v1 document,
+// defaulting IgnorePlayers to empty -- no player is ignored until the
+// user says so.
+func migrateV1toV2(doc map[string]any) (map[string]any, error) {
+	if _, ok := doc["media"]; !ok {
+		doc["media"] = map[string]any{
+			"ignorePlayers": []any{},
+		}
+	}
+	return doc, nil
+}
 
 // Migrate upgrades doc's "schemaVersion" field, if needed, to
 // model.CurrentSchemaVersion, applying each step in migrations in order.

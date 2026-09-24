@@ -1,22 +1,40 @@
 package model
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // CurrentSchemaVersion is the schema version this build of knobd writes.
 // Bumping it requires adding a step to the migration chain in
 // daemon/internal/config (see specs/milestones/M01-foundations.md).
-const CurrentSchemaVersion = 1
+//
+// v1 -> v2 (M09): added Config.Media (see MediaSettings).
+const CurrentSchemaVersion = 2
 
 // Config is the full on-disk shape of ~/.config/knobd/config.json. It is
 // loaded/saved/migrated by daemon/internal/config; model only defines
 // the shape and cross-referential validation.
 type Config struct {
-	SchemaVersion   int          `json:"schemaVersion"`
-	ActiveProfileID string       `json:"activeProfileId"`
-	Profiles        []Profile    `json:"profiles"`
-	AppMatchers     []AppMatcher `json:"appMatchers"`
-	AppGroups       []AppGroup   `json:"appGroups"`
-	Scenes          []Scene      `json:"scenes"`
+	SchemaVersion   int           `json:"schemaVersion"`
+	ActiveProfileID string        `json:"activeProfileId"`
+	Profiles        []Profile     `json:"profiles"`
+	AppMatchers     []AppMatcher  `json:"appMatchers"`
+	AppGroups       []AppGroup    `json:"appGroups"`
+	Scenes          []Scene       `json:"scenes"`
+	Media           MediaSettings `json:"media"`
+}
+
+// MediaSettings configures daemon/internal/media's MPRIS player
+// discovery. See specs/milestones/M09-media-transport-mpris.md.
+type MediaSettings struct {
+	// IgnorePlayers lists MPRIS bus name suffixes (the same form as
+	// MediaTransportAction.PlayerRef, e.g. "brave") to exclude from
+	// discovery, selection, and media.target_cycle -- for a player that
+	// duplicates another one on the bus (e.g. a browser tab showing up
+	// both under its own bus name and under
+	// org.mpris.MediaPlayer2.plasma-browser-integration).
+	IgnorePlayers []string `json:"ignorePlayers"`
 }
 
 // Profile is a named, independently selectable set of bindings, e.g.
@@ -117,6 +135,15 @@ func (c Config) Validate() error {
 
 	if c.ActiveProfileID != "" && !profileIDs[c.ActiveProfileID] {
 		return fmt.Errorf("model: active profile %q does not exist", c.ActiveProfileID)
+	}
+
+	for _, ref := range c.Media.IgnorePlayers {
+		if ref == "" {
+			return fmt.Errorf("model: media.ignorePlayers has an empty entry")
+		}
+		if strings.Contains(ref, "org.mpris.MediaPlayer2.") {
+			return fmt.Errorf("model: media.ignorePlayers entry %q must be a bus name suffix (e.g. %q), not the full bus name", ref, strings.TrimPrefix(ref, "org.mpris.MediaPlayer2."))
+		}
 	}
 
 	return nil
@@ -251,5 +278,6 @@ func Default() Config {
 		AppMatchers: []AppMatcher{},
 		AppGroups:   []AppGroup{},
 		Scenes:      []Scene{},
+		Media:       MediaSettings{IgnorePlayers: []string{}},
 	}
 }

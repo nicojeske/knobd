@@ -46,12 +46,13 @@ import (
 // coverage check catches a field added to the model side and forgotten
 // here.
 type Config struct {
-	SchemaVersion   int                `json:"schemaVersion"`
-	ActiveProfileID string             `json:"activeProfileId"`
-	Profiles        []Profile          `json:"profiles"`
-	AppMatchers     []model.AppMatcher `json:"appMatchers"`
-	AppGroups       []model.AppGroup   `json:"appGroups"`
-	Scenes          []model.Scene      `json:"scenes"`
+	SchemaVersion   int                 `json:"schemaVersion"`
+	ActiveProfileID string              `json:"activeProfileId"`
+	Profiles        []Profile           `json:"profiles"`
+	AppMatchers     []model.AppMatcher  `json:"appMatchers"`
+	AppGroups       []model.AppGroup    `json:"appGroups"`
+	Scenes          []model.Scene       `json:"scenes"`
+	Media           model.MediaSettings `json:"media"`
 }
 
 // Profile mirrors model.Profile.

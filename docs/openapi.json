@@ -406,10 +406,42 @@
           {
             "properties": {
               "type": {
+                "const": "media.now_playing"
+              },
+              "params": {
+                "$ref": "#/components/schemas/MediaNowPlayingAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
                 "const": "media.seek"
               },
               "params": {
                 "$ref": "#/components/schemas/MediaSeekAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "media.target_cycle"
+              },
+              "params": {
+                "$ref": "#/components/schemas/MediaTargetCycleAction"
               }
             },
             "additionalProperties": false,
@@ -897,7 +929,9 @@
                 "layer.cycle",
                 "layer.latch",
                 "layer.momentary",
+                "media.now_playing",
                 "media.seek",
+                "media.target_cycle",
                 "media.transport",
                 "mic.push_to_mute",
                 "mic.push_to_talk",
@@ -973,6 +1007,9 @@
               "$ref": "#/components/schemas/Scene"
             },
             "type": "array"
+          },
+          "media": {
+            "$ref": "#/components/schemas/MediaSettings"
           }
         },
         "additionalProperties": false,
@@ -983,7 +1020,8 @@
           "profiles",
           "appMatchers",
           "appGroups",
-          "scenes"
+          "scenes",
+          "media"
         ]
       },
       "ConfigChanged": {
@@ -1048,7 +1086,9 @@
               "layer.cycle",
               "layer.latch",
               "layer.momentary",
+              "media.now_playing",
               "media.seek",
+              "media.target_cycle",
               "media.transport",
               "mic.push_to_mute",
               "mic.push_to_talk",
@@ -1337,6 +1377,15 @@
           "active"
         ]
       },
+      "MediaNowPlayingAction": {
+        "properties": {
+          "playerRef": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
       "MediaSeekAction": {
         "properties": {
           "seekMs": {
@@ -1351,6 +1400,26 @@
         "required": [
           "seekMs"
         ]
+      },
+      "MediaSettings": {
+        "properties": {
+          "ignorePlayers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ignorePlayers"
+        ]
+      },
+      "MediaTargetCycleAction": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
       },
       "MediaTransportAction": {
         "properties": {

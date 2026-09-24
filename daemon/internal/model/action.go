@@ -52,8 +52,10 @@ const (
 
 	// -- Media transport (specs/milestones/M09-media-transport-mpris.md) --
 
-	ActionMediaTransport ActionType = "media.transport"
-	ActionMediaSeek      ActionType = "media.seek"
+	ActionMediaTransport   ActionType = "media.transport"
+	ActionMediaSeek        ActionType = "media.seek"
+	ActionMediaTargetCycle ActionType = "media.target_cycle"
+	ActionMediaNowPlaying  ActionType = "media.now_playing"
 
 	// -- Extended / system (specs/milestones/M11-extended-actions.md) --
 
@@ -257,6 +259,22 @@ type MediaSeekAction struct {
 
 func (MediaSeekAction) ActionType() ActionType { return ActionMediaSeek }
 
+// MediaTargetCycleAction advances the "currently selected" MPRIS player
+// (the one PlayerRef-less MediaTransportAction/MediaSeekAction/
+// MediaNowPlayingAction bindings act on) to the next running, non-
+// ignored player.
+type MediaTargetCycleAction struct{}
+
+func (MediaTargetCycleAction) ActionType() ActionType { return ActionMediaTargetCycle }
+
+// MediaNowPlayingAction shows a desktop notification naming PlayerRef's
+// (or, if empty, the currently selected player's) current track.
+type MediaNowPlayingAction struct {
+	PlayerRef string `json:"playerRef,omitempty"`
+}
+
+func (MediaNowPlayingAction) ActionType() ActionType { return ActionMediaNowPlaying }
+
 // SinkCycleDefaultAction advances the system default sink to the next
 // entry in SinkNames (wrapping), e.g. cycling headphones -> speakers ->
 // HDMI on one button.
@@ -330,6 +348,8 @@ var actionRegistry = map[ActionType]actionEntry{
 	ActionKnobLockToggle:       newActionEntry[KnobLockToggleAction](),
 	ActionMediaTransport:       newActionEntry[MediaTransportAction](),
 	ActionMediaSeek:            newActionEntry[MediaSeekAction](),
+	ActionMediaTargetCycle:     newActionEntry[MediaTargetCycleAction](),
+	ActionMediaNowPlaying:      newActionEntry[MediaNowPlayingAction](),
 	ActionSinkCycleDefault:     newActionEntry[SinkCycleDefaultAction](),
 	ActionMicPushToTalk:        newActionEntry[MicPushToTalkAction](),
 	ActionMicPushToMute:        newActionEntry[MicPushToMuteAction](),

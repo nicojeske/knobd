@@ -170,8 +170,16 @@ export interface components {
             params: components["schemas"]["LayerMomentaryAction"];
         } | {
             /** @constant */
+            type: "media.now_playing";
+            params: components["schemas"]["MediaNowPlayingAction"];
+        } | {
+            /** @constant */
             type: "media.seek";
             params: components["schemas"]["MediaSeekAction"];
+        } | {
+            /** @constant */
+            type: "media.target_cycle";
+            params: components["schemas"]["MediaTargetCycleAction"];
         } | {
             /** @constant */
             type: "media.transport";
@@ -288,7 +296,7 @@ export interface components {
             action: components["schemas"]["Action"];
         };
         Capabilities: {
-            implementedActions: ("audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.seek" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set")[];
+            implementedActions: ("audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set")[];
             supportedTargetKinds: ("default_sink" | "sink" | "default_source" | "source" | "app" | "group" | "focused" | "all_streams")[];
             features: components["schemas"]["Features"];
         };
@@ -299,6 +307,7 @@ export interface components {
             appMatchers: components["schemas"]["AppMatcher"][];
             appGroups: components["schemas"]["AppGroup"][];
             scenes: components["schemas"]["Scene"][];
+            media: components["schemas"]["MediaSettings"];
         };
         ConfigChanged: {
             revision: number;
@@ -313,7 +322,7 @@ export interface components {
             /** @enum {string} */
             gesture: "turn" | "press" | "hold" | "release" | "double_press" | "move";
             /** @enum {string} */
-            actionType: "audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.seek" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set";
+            actionType: "audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set";
             target?: components["schemas"]["Target"];
             resolved?: components["schemas"]["ResolvedTarget"];
         };
@@ -385,10 +394,17 @@ export interface components {
             /** Format: date-time */
             expiresAt?: string;
         };
+        MediaNowPlayingAction: {
+            playerRef?: string;
+        };
         MediaSeekAction: {
             seekMs: number;
             playerRef?: string;
         };
+        MediaSettings: {
+            ignorePlayers: string[];
+        };
+        MediaTargetCycleAction: Record<string, never>;
         MediaTransportAction: {
             /** @enum {string} */
             command: "play_pause" | "next" | "previous" | "shuffle_toggle" | "repeat_cycle";

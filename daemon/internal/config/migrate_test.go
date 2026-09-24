@@ -106,28 +106,51 @@ func TestMigrateAppliesRegisteredSteps(t *testing.T) {
 	restoreVersion, restoreMigrations := currentSchemaVersion, migrations
 	t.Cleanup(func() { currentSchemaVersion, migrations = restoreVersion, restoreMigrations })
 
-	currentSchemaVersion = 2
-	migrations = []func(map[string]any) (map[string]any, error){
-		func(doc map[string]any) (map[string]any, error) {
-			// A real migration restructures/renames/drops a field the
-			// current model.Config has no place for; this one just
-			// proves the loop reaches step 0 and its result is threaded
-			// through.
-			doc["migratedFrom1To2"] = true
-			return doc, nil
-		},
-	}
+	// Raise one past the real current version (2, as of M09) so this
+	// proves the loop reaches a synthetic step 2 (index 1) beyond the
+	// real v1->v2 step already registered, and threads its result
+	// through, without depending on that real step's own behavior.
+	currentSchemaVersion = 3
+	migrations = append(migrations[:1:1], func(doc map[string]any) (map[string]any, error) {
+		doc["migratedFrom2To3"] = true
+		return doc, nil
+	})
 
 	doc := defaultDoc(t)
 	got, err := Migrate(doc)
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if got["schemaVersion"] != 2 {
-		t.Errorf("schemaVersion = %v, want 2", got["schemaVersion"])
+	if got["schemaVersion"] != 3 {
+		t.Errorf("schemaVersion = %v, want 3", got["schemaVersion"])
 	}
-	if got["migratedFrom1To2"] != true {
+	if got["migratedFrom2To3"] != true {
 		t.Error("Migrate did not apply the registered step")
+	}
+}
+
+// TestMigrateV1ToV2AddsMediaSettings exercises the real (not synthetic)
+// v1->v2 step: a v1 document has no "media" key at all, and Migrate must
+// add one with an empty IgnorePlayers so it decodes into a valid
+// model.Config.
+func TestMigrateV1ToV2AddsMediaSettings(t *testing.T) {
+	doc := defaultDoc(t)
+	doc["schemaVersion"] = 1.0
+	delete(doc, "media")
+
+	got, err := Migrate(doc)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	cfg := decodeOrFatal(t, got)
+	if cfg.SchemaVersion != model.CurrentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", cfg.SchemaVersion, model.CurrentSchemaVersion)
+	}
+	if cfg.Media.IgnorePlayers == nil || len(cfg.Media.IgnorePlayers) != 0 {
+		t.Errorf("Media.IgnorePlayers = %#v, want an empty (non-nil) slice", cfg.Media.IgnorePlayers)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("migrated config does not validate: %v", err)
 	}
 }
 
@@ -139,8 +162,8 @@ func TestMigrateNoPathReturnsError(t *testing.T) {
 	restoreVersion, restoreMigrations := currentSchemaVersion, migrations
 	t.Cleanup(func() { currentSchemaVersion, migrations = restoreVersion, restoreMigrations })
 
-	currentSchemaVersion = 2
-	migrations = nil // no step registered to reach version 2
+	currentSchemaVersion = 3
+	migrations = nil // no step registered to reach version 3
 
 	doc := defaultDoc(t)
 	if _, err := Migrate(doc); err == nil {

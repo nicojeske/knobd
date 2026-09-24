@@ -134,10 +134,42 @@
         {
           "properties": {
             "type": {
+              "const": "media.now_playing"
+            },
+            "params": {
+              "$ref": "#/$defs/MediaNowPlayingAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
               "const": "media.seek"
             },
             "params": {
               "$ref": "#/$defs/MediaSeekAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "media.target_cycle"
+            },
+            "params": {
+              "$ref": "#/$defs/MediaTargetCycleAction"
             }
           },
           "additionalProperties": false,
@@ -545,6 +577,15 @@
         "layer"
       ]
     },
+    "MediaNowPlayingAction": {
+      "properties": {
+        "playerRef": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "MediaSeekAction": {
       "properties": {
         "seekMs": {
@@ -559,6 +600,26 @@
       "required": [
         "seekMs"
       ]
+    },
+    "MediaSettings": {
+      "properties": {
+        "ignorePlayers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ignorePlayers"
+      ]
+    },
+    "MediaTargetCycleAction": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
     },
     "MediaTransportAction": {
       "properties": {
@@ -846,6 +907,9 @@
         "$ref": "#/$defs/Scene"
       },
       "type": "array"
+    },
+    "media": {
+      "$ref": "#/$defs/MediaSettings"
     }
   },
   "additionalProperties": false,
@@ -856,7 +920,8 @@
     "profiles",
     "appMatchers",
     "appGroups",
-    "scenes"
+    "scenes",
+    "media"
   ],
   "title": "Config",
   "description": "knobd's on-disk configuration (~/.config/knobd/config.json). See daemon/internal/model.Config."

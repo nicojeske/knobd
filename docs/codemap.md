@@ -2327,6 +2327,7 @@ func TestMigrateAppliesRegisteredSteps(t *testing.T)
 func TestMigrateFutureVersionPassedThrough(t *testing.T)
 func TestMigrateMissingOrZeroVersionTreatedAsOne(t *testing.T)
 func TestMigrateNoPathReturnsError(t *testing.T)
+func TestMigrateV1ToV2AddsMediaSettings(t *testing.T)
 func TestPathHonorsXDGConfigHome(t *testing.T)
 func TestSaveIsAtomicNoStrayTempFiles(t *testing.T)
 func TestSaveRejectsInvalidConfig(t *testing.T)
@@ -2336,6 +2337,7 @@ func copyFixture(t *testing.T, name string) string
 func decode(doc map[string]any) (model.Config, error)
 func decodeOrFatal(t *testing.T, doc map[string]any) model.Config
 func defaultDoc(t *testing.T) map[string]any
+func migrateV1toV2(doc map[string]any) (map[string]any, error)
 func schemaVersionOf(doc map[string]any) int
 ```
 
@@ -4028,12 +4030,13 @@ the shape and cross-referential validation.
 
 ```go
 type Config struct {
-	SchemaVersion   int          `json:"schemaVersion"`
-	ActiveProfileID string       `json:"activeProfileId"`
-	Profiles        []Profile    `json:"profiles"`
-	AppMatchers     []AppMatcher `json:"appMatchers"`
-	AppGroups       []AppGroup   `json:"appGroups"`
-	Scenes          []Scene      `json:"scenes"`
+	SchemaVersion   int           `json:"schemaVersion"`
+	ActiveProfileID string        `json:"activeProfileId"`
+	Profiles        []Profile     `json:"profiles"`
+	AppMatchers     []AppMatcher  `json:"appMatchers"`
+	AppGroups       []AppGroup    `json:"appGroups"`
+	Scenes          []Scene       `json:"scenes"`
+	Media           MediaSettings `json:"media"`
 }
 ```
 
@@ -4165,6 +4168,23 @@ methods:
 func (LayerMomentaryAction) ActionType() ActionType
 ```
 
+### `MediaNowPlayingAction` (struct)
+
+MediaNowPlayingAction shows a desktop notification naming PlayerRef's
+(or, if empty, the currently selected player's) current track.
+
+```go
+type MediaNowPlayingAction struct {
+	PlayerRef string `json:"playerRef,omitempty"`
+}
+```
+
+methods:
+
+```go
+func (MediaNowPlayingAction) ActionType() ActionType
+```
+
 ### `MediaSeekAction` (struct)
 
 MediaSeekAction seeks the current track by SeekMs milliseconds
@@ -4181,6 +4201,40 @@ methods:
 
 ```go
 func (MediaSeekAction) ActionType() ActionType
+```
+
+### `MediaSettings` (struct)
+
+MediaSettings configures daemon/internal/media's MPRIS player
+discovery. See specs/milestones/M09-media-transport-mpris.md.
+
+```go
+type MediaSettings struct {
+	// IgnorePlayers lists MPRIS bus name suffixes (the same form as
+	// MediaTransportAction.PlayerRef, e.g. "brave") to exclude from
+	// discovery, selection, and media.target_cycle -- for a player that
+	// duplicates another one on the bus (e.g. a browser tab showing up
+	// both under its own bus name and under
+	// org.mpris.MediaPlayer2.plasma-browser-integration).
+	IgnorePlayers []string `json:"ignorePlayers"`
+}
+```
+
+### `MediaTargetCycleAction` (struct)
+
+MediaTargetCycleAction advances the "currently selected" MPRIS player
+(the one PlayerRef-less MediaTransportAction/MediaSeekAction/
+MediaNowPlayingAction bindings act on) to the next running, non-
+ignored player.
+
+```go
+type MediaTargetCycleAction struct{}
+```
+
+methods:
+
+```go
+func (MediaTargetCycleAction) ActionType() ActionType
 ```
 
 ### `MediaTransportAction` (struct)
@@ -4684,12 +4738,13 @@ here.
 
 ```go
 type Config struct {
-	SchemaVersion   int                `json:"schemaVersion"`
-	ActiveProfileID string             `json:"activeProfileId"`
-	Profiles        []Profile          `json:"profiles"`
-	AppMatchers     []model.AppMatcher `json:"appMatchers"`
-	AppGroups       []model.AppGroup   `json:"appGroups"`
-	Scenes          []model.Scene      `json:"scenes"`
+	SchemaVersion   int                 `json:"schemaVersion"`
+	ActiveProfileID string              `json:"activeProfileId"`
+	Profiles        []Profile           `json:"profiles"`
+	AppMatchers     []model.AppMatcher  `json:"appMatchers"`
+	AppGroups       []model.AppGroup    `json:"appGroups"`
+	Scenes          []model.Scene       `json:"scenes"`
+	Media           model.MediaSettings `json:"media"`
 }
 ```
 

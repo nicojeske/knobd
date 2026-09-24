@@ -10,7 +10,9 @@ profile — enough surface to exercise every top-level collection
 
 ## Files
 
-- `v1.json` — schema version 1 (`model.CurrentSchemaVersion` as of M12),
+- `v1.json` — schema version 1 (`model.CurrentSchemaVersion` as of M12;
+  M09 bumped it to 2, adding `Config.Media`, but this fixture is
+  deliberately left at the older shape it documents — see below),
   produced by `model.Config.Validate`-passing Go values marshaled with
   `encoding/json`, matching exactly what `config.Save` would write.
 - `v0-unversioned.json` — the same document with `schemaVersion` deleted
@@ -22,7 +24,10 @@ profile — enough surface to exercise every top-level collection
 Consumed by `TestLoadAndUpgrade*` in `daemon/internal/config/config_test.go`,
 which copies these into a `t.TempDir()` before touching them so the
 originals here never change. If `model.CurrentSchemaVersion` moves past
-1, regenerate `v1.json` from the new shape (or add a `v2.json` etc.) —
+2, regenerate `v1.json` from the new shape (or add a `v2.json` etc.) —
 the test that raises `currentSchemaVersion` in-process to exercise a
 *real* future migration doesn't need a fixture at the raised version,
-only these two below-current ones.
+only these two below-current ones. `v1.json` deliberately has no
+`"media"` key at all, so it also exercises the real v1->v2 migration
+step (`migrateV1toV2` in `daemon/internal/config/migrate.go`), which
+adds `Config.Media` with an empty `ignorePlayers`.

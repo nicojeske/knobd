@@ -39,8 +39,16 @@ export type Action =
       params: LayerMomentaryAction;
     }
   | {
+      type: "media.now_playing";
+      params: MediaNowPlayingAction;
+    }
+  | {
       type: "media.seek";
       params: MediaSeekAction;
+    }
+  | {
+      type: "media.target_cycle";
+      params: MediaTargetCycleAction;
     }
   | {
       type: "media.transport";
@@ -101,6 +109,7 @@ export interface Config {
   appMatchers: AppMatcher[];
   appGroups: AppGroup[];
   scenes: Scene[];
+  media: MediaSettings;
 }
 export interface Profile {
   id: string;
@@ -142,10 +151,14 @@ export interface LayerLatchAction {
 export interface LayerMomentaryAction {
   layer: number;
 }
+export interface MediaNowPlayingAction {
+  playerRef?: string;
+}
 export interface MediaSeekAction {
   seekMs: number;
   playerRef?: string;
 }
+export interface MediaTargetCycleAction {}
 export interface MediaTransportAction {
   command: "play_pause" | "next" | "previous" | "shuffle_toggle" | "repeat_cycle";
   playerRef?: string;
@@ -208,4 +221,7 @@ export interface SceneEntry {
   target: Target;
   volumePercent: number;
   muted: boolean;
+}
+export interface MediaSettings {
+  ignorePlayers: string[];
 }
