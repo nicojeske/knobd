@@ -148,6 +148,44 @@ func TestEngineRunLEDUnboundRingIsBlank(t *testing.T) {
 	}
 }
 
+// TestEngineRunLEDButtonLightsWhenMappedRegardlessOfAction is the
+// 2026-09-25 revision: a button bound to any action -- not just
+// volume.mute_toggle -- lights solid so a mapped control reads as
+// mapped at a glance, and an unbound button stays off next to it.
+func TestEngineRunLEDButtonLightsWhenMappedRegardlessOfAction(t *testing.T) {
+	btn1 := model.Control{Kind: model.ControlButton, Index: 1} // note 89
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: btn1, Gesture: model.GesturePress, Action: model.KnobLockToggleAction{}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, _ := newTestEngine(cfg, clk)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	waitFor(t, 2*time.Second, func() bool {
+		w := buttonWrites(port, 89)
+		return len(w) > 0 && w[len(w)-1].Data2 == 127
+	})
+
+	// Button 2 (note 90) has no binding at all in this config -- it
+	// must stay off, unlike button 1's mapped-but-otherwise-stateless
+	// binding above.
+	waitFor(t, 2*time.Second, func() bool { return len(buttonWrites(port, 90)) > 0 })
+	w := buttonWrites(port, 90)
+	if last := w[len(w)-1]; last.Data2 != 0 {
+		t.Errorf("unbound button 2's last LED write = %#02x, want 0 (off)", last.Data2)
+	}
+}
+
 // TestEngineRunLEDButtonTracksMute is acceptance criterion 4: pressing a
 // mute-bound button toggles its LED, via executeMuteToggle's OnApplied
 // call (the actions package fix this milestone also makes).

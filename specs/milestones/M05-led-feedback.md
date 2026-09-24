@@ -2,11 +2,12 @@
 
 ## Status
 
-**Done** (as of 2026-09-22). Every acceptance criterion below is
-checked except the one that depends on M06 (which doesn't exist yet).
-Everything else — the calibration sweep, the startup repaint, a live
-knob turn, an external `pactl`/pavucontrol-style change, mute toggling,
-an unbound ring staying blank, a rapid fader sweep, and an unplug/replug
+**Done** (as of 2026-09-22; revised 2026-09-25 — see below). Every
+acceptance criterion is checked except the one new one added in the
+2026-09-25 revision (hand verification still open). Everything else —
+the calibration sweep, the startup repaint, a live knob turn, an
+external `pactl`/pavucontrol-style change, mute toggling, an unbound
+ring staying blank, a rapid fader sweep, and an unplug/replug
 reconnect — was verified against the physical X-Touch Mini and a real
 PipeWire session on this machine, not just fakes.
 
@@ -49,6 +50,16 @@ implementation:
   or from `ensureUnmuted`'s implicit un-mute (a correctness gap
   independent of LEDs — the cache could stay stale if the write that
   followed then failed).
+- **Revised 2026-09-25**: any bound button or side button now lights
+  solid by default (`engine.ledDesired`, `daemon/internal/engine/led.go`)
+  rather than only a `volume.mute_toggle` binding driving its LED — a
+  mapped button should read as mapped at a glance regardless of which
+  action it's bound to. `volume.mute_toggle` still overrides this
+  default with the real mute state (a strictly more useful signal than
+  "mapped" once it's known), and a layer action (`layer.momentary`/
+  `layer.latch`/`layer.cycle`) still overrides it with its own
+  active/inactive state rather than a static "mapped" glow, since both
+  already carry richer information than plain mappedness.
 
 ## Depends on
 
@@ -57,10 +68,13 @@ M04 (a running engine with resolved volume state to display).
 ## Goal
 
 The X-Touch Mini's own LEDs become the mixer's display: each bound
-encoder's ring shows its target's current volume, each mute-capable
-button's LED shows mute state, an unbound encoder's ring is blank, and
-assigning a knob to the focused app (M06's `knob.assign_focused_app`)
-flashes a confirmation.
+encoder's ring shows its target's current volume, each bound button's
+LED lights solid so a mapped control reads as mapped at a glance — a
+mute-capable button's LED shows mute state instead, and a layer
+button's LED shows whether its layer is currently active instead, both
+overriding the plain "mapped" default with their own richer state — an
+unbound encoder's ring is blank, and assigning a knob to the focused app
+(M06's `knob.assign_focused_app`) flashes a confirmation.
 
 ## Scope
 
@@ -151,6 +165,13 @@ individually addressable).
 - [x] An encoder with no target shows a blank/off ring. Verified:
       encoders/buttons 3–8 (unbound in the default config) were blank
       from the very first startup repaint.
+- [ ] **Added 2026-09-25**: any button (or side button) bound to
+      *any* action lights solid, not just `volume.mute_toggle`.
+      `TestEngineRunLEDButtonTracksMute` and the layer-LED tests in
+      `daemon/internal/engine/led_test.go`/`engine_test.go` cover this
+      against `midi.FakePort`; not yet re-verified against the physical
+      unit with a non-mute, non-layer button binding (e.g.
+      `media.transport`).
 - [x] LED updates don't visibly lag or drop frames during rapid fader
       movement (rate-limiting works). Verified: sweeping the fader
       end to end kept the bound ring's LEDs visibly smooth, no

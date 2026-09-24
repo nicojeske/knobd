@@ -187,12 +187,18 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 		case model.ControlEncoder:
 			desired[cs.Control] = ledRingUpdate(cs.Control, cs.Volume)
 		case model.ControlButton, model.ControlSideButton:
-			// Only a mute-toggle binding drives a button's LED -- any
-			// other action type bound to a button (e.g. a future
-			// knob.assign_focused_app on a hold gesture) leaves it off.
-			if cs.ActionType == model.ActionVolumeMuteToggle {
-				desired[cs.Control] = ledButtonUpdate(cs.Control, cs.Volume)
-			}
+			// Any bound button lights solid so a mapped control reads
+			// as mapped at a glance, distinct from the always-off
+			// controls left untouched above. A mute-toggle binding
+			// overrides this default in the pass below with its real
+			// mute state, which is a strictly more useful signal than
+			// "mapped" once it's known.
+			desired[cs.Control] = device.LEDUpdate{Control: cs.Control, On: true}
+		}
+	}
+	for _, cs := range snap.Controls {
+		if cs.ActionType == model.ActionVolumeMuteToggle {
+			desired[cs.Control] = ledButtonUpdate(cs.Control, cs.Volume)
 		}
 	}
 
@@ -213,9 +219,10 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 		default:
 			continue
 		}
-		if lit {
-			desired[ab.Control] = device.LEDUpdate{Control: ab.Control, On: true}
-		}
+		// A layer action's own active/inactive state overrides the
+		// generic "mapped" default set above -- lit only while its
+		// effect is currently in force, not simply because it's bound.
+		desired[ab.Control] = device.LEDUpdate{Control: ab.Control, On: lit}
 	}
 
 	if !leds.override.until.IsZero() && e.clk.Now().Before(leds.override.until) {
@@ -227,8 +234,8 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 }
 
 // ledOffUpdate is the blank/off rendering for c: no LED lit, for an
-// encoder with no target or an unresolved target, or a button not bound
-// to volume.mute_toggle.
+// encoder with no target or an unresolved target, or a button with no
+// binding at all.
 func ledOffUpdate(c model.Control) device.LEDUpdate {
 	if c.Kind == model.ControlEncoder {
 		// LEDModeFill at Position 0 renders identically (confirmed
