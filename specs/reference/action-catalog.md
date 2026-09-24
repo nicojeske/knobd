@@ -85,12 +85,12 @@ types themselves.
 
 | Action | Status |
 |---|---|
-| ★ `spotify.like_toggle` | Planned — [M10](../milestones/M10-spotify-web-api.md) |
-| ★ `spotify.add_to_playlist` — one playlist per button | Planned — M10 |
-| `spotify.remove_from_playlist` | Planned — M10 |
-| `spotify.start_playlist` | Planned — M10 |
-| `spotify.queue_track` | Planned — M10 |
-| `spotify.transfer_playback` | Planned — M10 |
+| ★ `spotify.like_toggle` | Done — [M10](../milestones/M10-spotify-web-api.md) |
+| ★ `spotify.add_to_playlist` — one playlist per button | Done — M10 |
+| `spotify.remove_from_playlist` | Done — M10 |
+| `spotify.start_playlist` | Done — M10 |
+| `spotify.queue_track` | Done — M10 |
+| `spotify.transfer_playback` | Done — M10 |
 
 ## System
 

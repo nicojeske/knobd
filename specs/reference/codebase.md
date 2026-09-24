@@ -80,6 +80,14 @@ repeated here):
    and `mediaHandlers` (`actions.NewMediaHandlers`, against the tracker
    + `media.Backend` + a `media.Notifier` + a live
    `Config.Media.IgnorePlayers` reader) registers here too — M09.
+   `spotify.Service` (M10) is constructed right after, sharing the same
+   session-bus connection media dialed (`org.freedesktop.secrets` lives
+   on the session bus too) for its `SecretStore`; `spotifyHandlers`
+   (`actions.NewSpotifyHandlers`, against `spotifySvc.Client()` + the
+   same `media.Notifier`) registers alongside the others, and
+   `spotifyHandlers.Run` is started as its own goroutine (step 9) since
+   it queues Spotify Web API calls off the engine's dispatch goroutine
+   rather than executing them inline.
 8. `api.NewHub`, then adapters into `api.New`: `newAudioGraph`,
    `newCapabilitiesProvider`, `newLearnController` — each is a small
    point-of-use interface adapter defined in `cmd/knobd` itself (see
@@ -89,6 +97,10 @@ repeated here):
    `hub.Run`, and a connection-status watcher; whichever exits first
    cancels a shared `runCtx` and the others unwind. Hand-rolled instead
    of `errgroup` — see the comment at that call site for why.
+   `spotifyHandlers.Run` (M10) is started as a fifth goroutine here too,
+   but deliberately left out of that race — it never returns an error
+   worth cancelling the daemon over, it just stops when `runCtx` is
+   canceled.
 10. `SIGHUP` reloads `config.json` from disk via `config.Load` (not
     `LoadAndUpgrade` — a hand-edited file at the current schema version
     shouldn't be silently rewritten).
@@ -196,7 +208,7 @@ commit the result — CI fails otherwise (same gate as `make schema`).
 | M07 | `ui/` (Tauri + React config app), `api.Hub`/SSE (ADR 0004 Update), `daemon/internal/schema` + `docs/*.json` generation |
 | M08 | Layers, groups, scenes, solo/duck — done; `engine.layerState`/`dispatchGesture`, `resolver.resolveGroup`, `actions.SceneHandlers`/`MixHandlers` |
 | M09 | Media transport (MPRIS) — done; `daemon/internal/media` (`Backend`/`Tracker`/`Notifier`), `actions.MediaHandlers`, `engine/dispatch.go`'s `media.seek` coalescing, `api.State.Media` |
-| M10 | Spotify Web API — not started; depends on M09 |
+| M10 | Spotify Web API — done; `daemon/internal/spotify` (`Auth`/`TokenManager`/`Client`/`SecretStore`/`Service`), `actions.SpotifyHandlers` (own worker goroutine), `/spotify/*` API routes, `api.State.Spotify` |
 | M11 | Extended actions — not started; new `actions` handler sets |
 | M12 | Packaging: `packaging/`, PKGBUILDs, config migration-on-upgrade, unit/install paths |
 
