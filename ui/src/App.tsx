@@ -6,18 +6,20 @@ import { Banner } from "./components/common/Banner";
 import { StatusBar } from "./components/common/StatusBar";
 import { Panel } from "./components/panel/Panel";
 import { ProfilesView } from "./components/profiles/ProfilesView";
+import { ScenesView } from "./components/scenes/ScenesView";
 import { DiagnosticsView } from "./components/views/DiagnosticsView";
 import { cx } from "./lib/cx";
 import { CapabilitiesProvider } from "./state/CapabilitiesContext";
 import { ConfigProvider, useConfig } from "./state/ConfigContext";
 import { ConnectionProvider } from "./state/ConnectionContext";
 
-const VIEWS = ["panel", "apps", "profiles", "diagnostics"] as const;
+const VIEWS = ["panel", "apps", "scenes", "profiles", "diagnostics"] as const;
 type View = (typeof VIEWS)[number];
 
 const VIEW_LABELS: Record<View, string> = {
   panel: "Panel",
   apps: "Apps & Groups",
+  scenes: "Scenes",
   profiles: "Profiles",
   diagnostics: "Diagnostics",
 };
@@ -49,6 +51,8 @@ function ViewContent({ view }: { view: View }) {
       return <Panel />;
     case "apps":
       return <AppsView />;
+    case "scenes":
+      return <ScenesView />;
     case "profiles":
       return <ProfilesView />;
     case "diagnostics":

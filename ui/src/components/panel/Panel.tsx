@@ -177,6 +177,7 @@ export function Panel() {
           kind={selected.kind}
           index={selected.index}
           preferredGesture={selected.preferredGesture}
+          initialLayer={state?.profile.activeLayer ?? 0}
           onClose={() => {
             setSelected(undefined);
           }}

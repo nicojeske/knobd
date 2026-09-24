@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { ACTION_SPECS, type ActionType, type FieldSpec, type ParamsOf } from "../../actions/specs";
 import { clearField, parseOptionalNumber, setField } from "../../config/fields";
+import { useConfig } from "../../state/ConfigContext";
 import type { Target } from "../../types/config";
 import styles from "./Field.module.css";
 import { TargetField } from "./TargetField";
@@ -158,7 +159,63 @@ function FieldRow<P extends object>({
         />
       );
     }
+    case "scene": {
+      const raw = params[field.key];
+      const value = typeof raw === "string" ? raw : "";
+      return (
+        <SceneFieldRow
+          label={field.label}
+          value={value}
+          onChange={(next) => {
+            onChange(setField(params, field.key, next as P[typeof field.key]));
+          }}
+        />
+      );
+    }
   }
+}
+
+/** SceneFieldRow picks a scene by id from config.scenes -- falling back
+ * to free text if the stored sceneId doesn't match any configured scene
+ * (a scene deleted out from under an existing binding, or a hand-edited
+ * config), the same "known option, or type it yourself" shape
+ * TargetField uses for a device that isn't plugged in right now. */
+function SceneFieldRow({ label, value, onChange }: { label: string; value: string; onChange: (next: string) => void }) {
+  const { config } = useConfig();
+  const scenes = config?.scenes ?? [];
+  const knownOption = value === "" || scenes.some((s) => s.id === value);
+
+  return (
+    <div className={styles.row}>
+      <label>{label}</label>
+      {knownOption ? (
+        <select
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        >
+          <option value="" disabled>
+            {scenes.length === 0 ? "(no scenes configured)" : "Choose a scene…"}
+          </option>
+          {scenes.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.displayName || s.id}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          placeholder="scene id"
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 function NumberFieldRow({

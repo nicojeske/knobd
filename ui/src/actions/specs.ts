@@ -33,7 +33,8 @@ export type FieldSpec<P> = {
     | (FieldBase<P, K> & { kind: "text"; placeholder?: string })
     | (FieldBase<P, K> & { kind: "enum"; options: readonly string[] })
     | (FieldBase<P, K> & { kind: "stringList" })
-    | (FieldBase<P, K> & { kind: "numberList" });
+    | (FieldBase<P, K> & { kind: "numberList" })
+    | (FieldBase<P, K> & { kind: "scene" });
 }[Extract<keyof P, string>];
 
 export interface ActionSpec<T extends ActionType> {
@@ -145,13 +146,13 @@ export const ACTION_SPECS: { readonly [T in ActionType]: ActionSpec<T> } = {
     label: "Apply scene",
     group: "scene",
     defaults: () => ({ sceneId: "" }),
-    fields: [{ kind: "text", key: "sceneId", label: "Scene" }],
+    fields: [{ kind: "scene", key: "sceneId", label: "Scene" }],
   },
   "scene.save": {
     label: "Save scene",
     group: "scene",
     defaults: () => ({ sceneId: "" }),
-    fields: [{ kind: "text", key: "sceneId", label: "Scene" }],
+    fields: [{ kind: "scene", key: "sceneId", label: "Scene" }],
   },
   "shell.run": {
     label: "Run a command",

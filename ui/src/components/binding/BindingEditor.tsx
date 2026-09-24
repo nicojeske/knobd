@@ -12,11 +12,6 @@ import { ActionParamsForm } from "./ActionParamsForm";
 import styles from "./BindingEditor.module.css";
 import { Dialog } from "../common/Dialog";
 
-// Layers aren't reachable at runtime until M08 (GET /capabilities
-// reports features.layers: false) -- everything in this editor targets
-// layer 0, matching ProfileState.activeLayer's own "always 0 until M08."
-const LAYER = 0;
-
 interface GestureOption {
   kind: ControlKind;
   gesture: Gesture;
@@ -59,6 +54,7 @@ export function BindingEditor({
   kind: primaryKind,
   index,
   preferredGesture,
+  initialLayer,
   onClose,
 }: {
   kind: ControlKind;
@@ -74,10 +70,17 @@ export function BindingEditor({
    * exactOptionalPropertyTypes -- an `?:` prop here would reject that
    * value explicitly passed. */
   preferredGesture: Gesture | undefined;
+  /** initialLayer seeds the layer selector, e.g. with whatever layer is
+   * currently active on the hardware (Panel passes state.profile.
+   * activeLayer) -- a starting point the user can still change, same
+   * spirit as preferredGesture. */
+  initialLayer: number;
   onClose: () => void;
 }) {
   const { config, reload } = useConfig();
   const { capabilities } = useCapabilities();
+
+  const [layer, setLayerState] = useState(initialLayer);
 
   const options = useMemo(() => gestureOptions(primaryKind), [primaryKind]);
   const preferredOption = preferredGesture ? options.find((o) => o.gesture === preferredGesture) : undefined;
@@ -90,7 +93,15 @@ export function BindingEditor({
   const profile = config?.profiles.find((p) => p.id === config.activeProfileId);
   const existing =
     profile && selection
-      ? findBinding(profile.bindings, LAYER, { kind: selection.kind, index }, selection.gesture)
+      ? findBinding(profile.bindings, layer, { kind: selection.kind, index }, selection.gesture)
+      : undefined;
+  // A non-zero layer with no binding of its own falls back to layer 0's
+  // at runtime (see engine/bindings.go's lookup) -- surfaced below so
+  // editing layer 2, say, doesn't look identical to "unbound" when it's
+  // actually inheriting layer 0's action.
+  const inheritedFromLayerZero =
+    layer !== 0 && !existing && profile && selection
+      ? findBinding(profile.bindings, 0, { kind: selection.kind, index }, selection.gesture)
       : undefined;
 
   const [action, setAction] = useState<Action | undefined>(existing?.action);
@@ -106,7 +117,16 @@ export function BindingEditor({
     setSelectionKey(key);
     const next = options.find((o) => `${o.kind}:${o.gesture}` === key);
     const nextExisting =
-      profile && next ? findBinding(profile.bindings, LAYER, { kind: next.kind, index }, next.gesture) : undefined;
+      profile && next ? findBinding(profile.bindings, layer, { kind: next.kind, index }, next.gesture) : undefined;
+    setAction(nextExisting?.action);
+  }
+
+  function selectLayer(next: number) {
+    setLayerState(next);
+    const nextExisting =
+      profile && selection
+        ? findBinding(profile.bindings, next, { kind: selection.kind, index }, selection.gesture)
+        : undefined;
     setAction(nextExisting?.action);
   }
 
@@ -120,7 +140,7 @@ export function BindingEditor({
     setError(undefined);
     try {
       const binding: Binding = {
-        layer: LAYER,
+        layer,
         control: { kind: selection.kind, index },
         gesture: selection.gesture,
         action: activeAction,
@@ -145,7 +165,7 @@ export function BindingEditor({
     try {
       const nextProfiles = config.profiles.map((p) =>
         p.id === profile.id
-          ? { ...p, bindings: removeBinding(p.bindings, LAYER, { kind: selection.kind, index }, selection.gesture) }
+          ? { ...p, bindings: removeBinding(p.bindings, layer, { kind: selection.kind, index }, selection.gesture) }
           : p,
       );
       await saveConfig({ ...config, profiles: nextProfiles });
@@ -170,6 +190,26 @@ export function BindingEditor({
 
   return (
     <Dialog title={`${primaryKind} ${index}`} onClose={onClose}>
+      <div className={styles.row}>
+        <label>Layer</label>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={layer}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isInteger(next) && next >= 0) selectLayer(next);
+          }}
+        />
+      </div>
+      {inheritedFromLayerZero ? (
+        <div className={styles.note}>
+          Layer {layer} has no binding of its own here -- layer 0's (
+          {ACTION_SPECS[inheritedFromLayerZero.action.type].label}) applies until one is added.
+        </div>
+      ) : null}
+
       <div className={styles.row}>
         <label>Gesture</label>
         <select
@@ -214,9 +254,6 @@ export function BindingEditor({
       ) : null}
       {activeAction && ACTION_SPECS[activeAction.type].note ? (
         <div className={styles.note}>{ACTION_SPECS[activeAction.type].note}</div>
-      ) : null}
-      {activeAction && "target" in activeAction.params && activeAction.params.target.kind === "group" ? (
-        <div className={styles.note}>Group targets are accepted here but don't resolve at runtime until M08.</div>
       ) : null}
 
       {activeAction ? (

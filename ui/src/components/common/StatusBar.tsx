@@ -51,6 +51,7 @@ export function StatusBar() {
       <span className={styles.spacer} />
       {learn.active ? <span className={styles.item}>Learning…</span> : null}
       <span className={styles.item}>{profile.activeProfileId || "no profile"}</span>
+      {profile.activeLayer !== 0 ? <span className={styles.item}>layer {profile.activeLayer}</span> : null}
     </div>
   );
 }
