@@ -16,7 +16,7 @@ the live PipeWire sink/source/stream graph and its change events,
 them, and `knobd calibrate-leds` (M05) sends one raw LED MIDI message
 and exits — all four without the rest of the daemon.
 
-**imports:** `internal/actions`, `internal/api`, `internal/audio`, `internal/config`, `internal/device`, `internal/engine`, `internal/focus`, `internal/media`, `internal/midi`, `internal/model`
+**imports:** `internal/actions`, `internal/api`, `internal/audio`, `internal/config`, `internal/device`, `internal/engine`, `internal/focus`, `internal/media`, `internal/midi`, `internal/model`, `internal/spotify`
 
 ### `audioBackend` (interface)
 
@@ -78,6 +78,27 @@ testable without constructing a real Registry.
 
 ```go
 ActionTypes() []model.ActionType
+```
+
+### `spotifyService` (interface)
+
+spotifyService is the slice of *spotify.Service spotifyProvider needs
+-- point-of-use, matching every other adapter in this package.
+
+```go
+Login(ctx context.Context) (string, error)
+Logout() error
+Status() spotify.Status
+Client() *spotify.Client
+```
+
+### `spotifyStatus` (interface)
+
+spotifyStatus is the slice of *spotify.Service daemonState needs --
+point-of-use, matching mediaTracker's own pattern in this package.
+
+```go
+Status() spotify.Status
 ```
 
 ### `audioGraph` (struct)
@@ -198,6 +219,8 @@ type daemonState struct {
 	// mediaIgnore reads Config.Media.IgnorePlayers fresh on every State
 	// call, mirroring actions.MediaOptions.IgnorePlayers.
 	mediaIgnore func() []string
+
+	spotify spotifyStatus
 }
 ```
 
@@ -268,6 +291,36 @@ func (l *learnController) StartLearn(ctx context.Context, timeout time.Duration)
 func (l *learnController) StopLearn(ctx context.Context) error
 ```
 
+### `spotifyProvider` (struct)
+
+spotifyProvider is cmd/knobd's api.SpotifyProvider adapter: it
+translates spotify.ErrUnavailable/ErrNotAuthorized to the api package's
+own sentinels (api never imports daemon/internal/spotify -- see
+api.Server's package doc comment) and, on a successful Login, makes a
+best-effort attempt to open the authorize URL in a browser so the
+user isn't left to copy-paste it (the UI shows it too, as a
+fallback -- see api.SpotifyState.LoginURL).
+
+```go
+type spotifyProvider struct {
+	svc    spotifyService
+	logger *slog.Logger
+	// open is xdg-open by default; overridden in tests so they don't
+	// actually spawn a browser.
+	open func(url string)
+}
+```
+
+methods:
+
+```go
+func (p *spotifyProvider) Devices(ctx context.Context) (api.SpotifyDeviceList, error)
+func (p *spotifyProvider) Login(ctx context.Context) (string, error)
+func (p *spotifyProvider) Logout() error
+func (p *spotifyProvider) Playlists(ctx context.Context) (api.SpotifyPlaylistList, error)
+func (p *spotifyProvider) xdgOpen(url string)
+```
+
 ### `stubApplier` (struct)
 
 ```go
@@ -336,11 +389,13 @@ func runMonitor(args []string) error
 func runMonitorAudio(args []string) error
 func runMonitorFocus(args []string) error
 func snapshotToState(snap engine.Snapshot, device api.DeviceState, audioState api.AudioState, focusAvailable bool, mediaState api.MediaState, now time.Time) api.State
+func spotifyStateOf(svc spotifyStatus) api.SpotifyState
+func translateSpotifyClientErr(err error) error
 func watchAudio(ctx context.Context, sup *audio.Supervisor) error
 func watchConnections(ctx context.Context, midiSup *midi.Supervisor, audioSup *audio.Supervisor, status *connStatus, eng *engine.Engine, notify func(), log *slog.Logger)
 ```
 
-**consts/vars:** `audioEnumerateTimeout`, `propAppName`, `propBinary`, `propBinaryKnobd`, `propCorked`, `propDesktopID`, `propMediaName`, `propNodeName`
+**consts/vars:** `_`, `audioEnumerateTimeout`, `propAppName`, `propBinary`, `propBinaryKnobd`, `propCorked`, `propDesktopID`, `propMediaName`, `propNodeName`
 
 **tests:** `audiograph_test.go`, `capabilities_test.go`, `configstore_test.go`, `learn_test.go`, `main_test.go`, `monitor_audio_test.go`, `monitor_focus_test.go`, `monitor_test.go`, `state_test.go`
 
@@ -374,7 +429,7 @@ milestone starts; see specs/reference/action-catalog.md for the full
 brainstormed list, most of which has no handler — or even a
 model.Action type — yet.
 
-**imports:** `internal/audio`, `internal/focus`, `internal/media`, `internal/model`
+**imports:** `internal/audio`, `internal/focus`, `internal/media`, `internal/model`, `internal/spotify`
 
 ### `ConfigMutator` (interface)
 
@@ -432,6 +487,27 @@ type's full surface.
 ```go
 Resolve(ref string, ignore []string) (media.PlayerInfo, bool)
 Cycle(ignore []string) (media.PlayerInfo, bool)
+```
+
+### `SpotifyAPI` (interface)
+
+SpotifyAPI is the slice of spotify.Client this handler set needs --
+point-of-use, so actions never imports spotify.Client's full surface
+(mirrors MediaCommands' role for media.Backend). Satisfied by
+*spotify.Client in production and a fake in tests.
+
+```go
+CurrentlyPlaying(ctx context.Context) (spotify.CurrentTrack, error)
+LibraryContains(ctx context.Context, uri string) (bool, error)
+SaveToLibrary(ctx context.Context, uri string) error
+RemoveFromLibrary(ctx context.Context, uri string) error
+AddPlaylistItems(ctx context.Context, playlistID, uri string) error
+RemovePlaylistItems(ctx context.Context, playlistID, uri string) error
+PlayContext(ctx context.Context, contextURI string) error
+Queue(ctx context.Context, trackURI string) error
+Transfer(ctx context.Context, deviceID string, play bool) error
+Devices(ctx context.Context) ([]spotify.Device, error)
+Playlists(ctx context.Context) ([]spotify.Playlist, error)
 ```
 
 ### `AssignHandlers` (struct)
@@ -698,6 +774,63 @@ methods:
 func (o SceneOptions) logger() *slog.Logger
 ```
 
+### `SpotifyHandlers` (struct)
+
+SpotifyHandlers implements model.ActionSpotifyLikeToggle/
+AddToPlaylist/RemoveFromPlaylist/StartPlaylist/QueueTrack/
+TransferPlayback (see specs/milestones/M10-spotify-web-api.md).
+Unlike every other handler set in this package, Execute never calls
+the backend directly -- see spotifyQueueDepth's doc comment -- so
+cmd/knobd must also start Run in its own goroutine alongside
+registering this handler set.
+
+```go
+type SpotifyHandlers struct {
+	api      SpotifyAPI
+	notifier media.Notifier
+	opts     SpotifyOptions
+
+	jobs chan spotifyJob
+}
+```
+
+methods:
+
+```go
+func (h *SpotifyHandlers) Register(r *Registry)
+func (h *SpotifyHandlers) Run(ctx context.Context)
+func (h *SpotifyHandlers) addToPlaylist(ctx context.Context, a model.SpotifyAddToPlaylistAction) error
+func (h *SpotifyHandlers) enqueue(ctx context.Context, inv Invocation) error
+func (h *SpotifyHandlers) likeToggle(ctx context.Context) error
+func (h *SpotifyHandlers) notify(summary, body string)
+func (h *SpotifyHandlers) notifyError(subject string, err error)
+func (h *SpotifyHandlers) queueTrack(ctx context.Context, a model.SpotifyQueueTrackAction) error
+func (h *SpotifyHandlers) removeFromPlaylist(ctx context.Context, a model.SpotifyRemoveFromPlaylistAction) error
+func (h *SpotifyHandlers) runJob(parent context.Context, job spotifyJob)
+func (h *SpotifyHandlers) startPlaylist(ctx context.Context, a model.SpotifyStartPlaylistAction) error
+func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyTransferPlaybackAction) error
+```
+
+### `SpotifyOptions` (struct)
+
+SpotifyOptions configures SpotifyHandlers. The zero value is sane
+defaults.
+
+```go
+type SpotifyOptions struct {
+	Logger *slog.Logger
+	// Timeout bounds each queued job's context; zero means 10s.
+	Timeout time.Duration
+}
+```
+
+methods:
+
+```go
+func (o SpotifyOptions) logger() *slog.Logger
+func (o SpotifyOptions) timeout() time.Duration
+```
+
 ### `VolumeHandlers` (struct)
 
 VolumeHandlers is the volume action family: the model.ActionVolume*
@@ -860,6 +993,55 @@ func (f *fakeMediaPlayers) Cycle(ignore []string) (media.PlayerInfo, bool)
 func (f *fakeMediaPlayers) Resolve(ref string, ignore []string) (media.PlayerInfo, bool)
 ```
 
+### `fakeSpotifyAPI` (struct)
+
+fakeSpotifyAPI is a SpotifyAPI test double recording every call.
+
+```go
+type fakeSpotifyAPI struct {
+	mu sync.Mutex
+
+	current     spotify.CurrentTrack
+	currentErr  error
+	contains    bool
+	containsErr error
+	saveErr     error
+	removeErr   error
+	addErr      error
+	removePLErr error
+	playErr     error
+	queueErr    error
+	transferErr error
+	devices     []spotify.Device
+	devicesErr  error
+	playlists   []spotify.Playlist
+
+	saved, removed                []string
+	addedPlaylist, addedURI       string
+	removedPlaylistID, removedURI string
+	playedContext                 string
+	queuedURI                     string
+	transferredDevice             string
+	transferredPlay               bool
+}
+```
+
+methods:
+
+```go
+func (f *fakeSpotifyAPI) AddPlaylistItems(ctx context.Context, playlistID, uri string) error
+func (f *fakeSpotifyAPI) CurrentlyPlaying(ctx context.Context) (spotify.CurrentTrack, error)
+func (f *fakeSpotifyAPI) Devices(ctx context.Context) ([]spotify.Device, error)
+func (f *fakeSpotifyAPI) LibraryContains(ctx context.Context, uri string) (bool, error)
+func (f *fakeSpotifyAPI) PlayContext(ctx context.Context, contextURI string) error
+func (f *fakeSpotifyAPI) Playlists(ctx context.Context) ([]spotify.Playlist, error)
+func (f *fakeSpotifyAPI) Queue(ctx context.Context, trackURI string) error
+func (f *fakeSpotifyAPI) RemoveFromLibrary(ctx context.Context, uri string) error
+func (f *fakeSpotifyAPI) RemovePlaylistItems(ctx context.Context, playlistID, uri string) error
+func (f *fakeSpotifyAPI) SaveToLibrary(ctx context.Context, uri string) error
+func (f *fakeSpotifyAPI) Transfer(ctx context.Context, deviceID string, play bool) error
+```
+
 ### `soloSession` (struct)
 
 soloSession is the one currently-active solo (see MixHandlers'
@@ -872,6 +1054,20 @@ not just unmute everything.
 type soloSession struct {
 	targetRefs map[audio.Ref]bool
 	prior      map[audio.Ref]bool
+}
+```
+
+### `spotifyJob` (struct)
+
+spotifyJob is one queued Spotify action, captured at Execute time
+(Invocation is only valid for the duration of the dispatch call that
+produced it, so Run must not hold onto inv itself -- only what it
+needs from it).
+
+```go
+type spotifyJob struct {
+	action  model.Action
+	control model.Control
 }
 ```
 
@@ -942,6 +1138,18 @@ func TestSoloMutesOthersAndRestoresMixedPriorStatesExactly(t *testing.T)
 func TestSoloSwitchingTargetRestoresOldBeforeSoloingNew(t *testing.T)
 func TestSoloToggleOffWithTargetGoneStillRestoresOthers(t *testing.T)
 func TestSoloWrongActionTypeErrors(t *testing.T)
+func TestSpotifyAddToPlaylistNormalizesID(t *testing.T)
+func TestSpotifyEnqueueDropsWhenQueueFull(t *testing.T)
+func TestSpotifyLikeToggleNothingPlayingNotifiesError(t *testing.T)
+func TestSpotifyLikeToggleRemovesWhenAlreadyLiked(t *testing.T)
+func TestSpotifyLikeToggleSavesWhenNotLiked(t *testing.T)
+func TestSpotifyQueueTrack(t *testing.T)
+func TestSpotifyRemoveFromPlaylist(t *testing.T)
+func TestSpotifyRunProcessesQueuedJobs(t *testing.T)
+func TestSpotifyStartPlaylist(t *testing.T)
+func TestSpotifyTransferPlaybackMatchesByName(t *testing.T)
+func TestSpotifyTransferPlaybackUnknownDevice(t *testing.T)
+func TestUserFacingSpotifyErrorMapsSentinels(t *testing.T)
 func TestVolumeAdjustCoalescingEquivalence(t *testing.T)
 func TestVolumeAdjustMultiRefIndependent(t *testing.T)
 func TestVolumeAdjustPropagatesBackendError(t *testing.T)
@@ -968,13 +1176,16 @@ func newSceneHandlersFor(fb *audio.FakeBackend, cfg model.Config) (*SceneHandler
 func nextRepeatStatus(status string) string
 func push(index int) model.Control
 func refSetEqual(a, b []audio.Ref) bool
+func runOne(t *testing.T, h *SpotifyHandlers, action model.Action)
 func seedBackend(t *testing.T, refs map[audio.Ref]audio.VolumeState) *audio.FakeBackend
 func slugify(s string) string
+func trackSummary(t spotify.CurrentTrack) string
+func userFacingSpotifyError(err error) string
 ```
 
-**consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`, `repeatCycleOrder`
+**consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`, `repeatCycleOrder`, `spotifyQueueDepth`
 
-**tests:** `assign_test.go`, `media_test.go`, `mix_test.go`, `registry_test.go`, `scene_test.go`, `volume_test.go`
+**tests:** `assign_test.go`, `media_test.go`, `mix_test.go`, `registry_test.go`, `scene_test.go`, `spotify_test.go`, `volume_test.go`
 
 ## `internal/api`
 
@@ -1033,6 +1244,20 @@ LearnState.
 ```go
 StartLearn(ctx context.Context, timeout time.Duration) (LearnState, error)
 StopLearn(ctx context.Context) error
+```
+
+### `SpotifyProvider` (interface)
+
+SpotifyProvider is how the API drives the Spotify Web API OAuth flow
+and serves the playlist/device pickers the binding editor uses. See
+spotify.Service (daemon/internal/spotify) -- cmd/knobd's adapter is
+the only implementation.
+
+```go
+Login(ctx context.Context) (authorizeURL string, err error)
+Logout() error
+Playlists(ctx context.Context) (SpotifyPlaylistList, error)
+Devices(ctx context.Context) (SpotifyDeviceList, error)
 ```
 
 ### `StateProvider` (interface)
@@ -1466,6 +1691,10 @@ type Options struct {
 	Audio        AudioProvider
 	Capabilities CapabilitiesProvider
 	Learn        LearnController
+	// Spotify serves the /spotify/* routes. Nil means those routes
+	// answer 503, exactly like a nil Config/State/Audio/Learn/
+	// Capabilities.
+	Spotify SpotifyProvider
 	// Events serves GET /events. Nil means that route answers 503,
 	// exactly like a nil Config/State/Audio/Learn/Capabilities.
 	Events *Hub
@@ -1551,6 +1780,7 @@ type Server struct {
 	audio        AudioProvider
 	capabilities CapabilitiesProvider
 	learn        LearnController
+	spotify      SpotifyProvider
 	events       *Hub
 	log          *slog.Logger
 }
@@ -1568,10 +1798,85 @@ func (s *Server) handleGetCapabilities(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request)
 func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request)
+func (s *Server) handleSpotifyDevices(w http.ResponseWriter, r *http.Request)
+func (s *Server) handleSpotifyLogin(w http.ResponseWriter, r *http.Request)
+func (s *Server) handleSpotifyLogout(w http.ResponseWriter, r *http.Request)
+func (s *Server) handleSpotifyPlaylists(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleStartLearn(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleStopLearn(w http.ResponseWriter, r *http.Request)
 func (s *Server) handlers() map[string]http.HandlerFunc
 func (s *Server) registerRoutes()
+```
+
+### `SpotifyDevice` (struct)
+
+SpotifyDevice is one Spotify Connect device from GET /spotify/devices,
+for spotify.transfer_playback's device picker.
+
+```go
+type SpotifyDevice struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type,omitempty"`
+	Active bool   `json:"active"`
+}
+```
+
+### `SpotifyLoginResponse` (struct)
+
+SpotifyLoginResponse is POST /spotify/login's response body.
+
+```go
+type SpotifyLoginResponse struct {
+	AuthorizeURL string `json:"authorizeUrl"`
+}
+```
+
+### `SpotifyPlaylist` (struct)
+
+SpotifyPlaylist is one playlist from GET /spotify/playlists, for the
+binding editor's playlist picker (ui/src/components/binding).
+
+```go
+type SpotifyPlaylist struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Owner string `json:"owner,omitempty"`
+	// Editable is true if the authorized user can add/remove items
+	// (owns it, or it's collaborative) -- the picker for
+	// spotify.add_to_playlist/remove_from_playlist offers only these.
+	Editable bool `json:"editable"`
+}
+```
+
+### `SpotifyState` (struct)
+
+SpotifyState reports the Spotify Web API OAuth connection's status --
+mirrors MediaState/FocusState's Available-gated shape: the
+spotify.* actions don't resolve while Authorized is false, and this
+is how the UI's Spotify tab explains why and offers a Connect button.
+
+```go
+type SpotifyState struct {
+	// Configured is true once Config.Spotify.ClientID is non-empty.
+	Configured bool `json:"configured"`
+	// Authorized is true once a refresh token is stored and was last
+	// confirmed good.
+	Authorized bool `json:"authorized"`
+	// LoginInProgress is true between POST /spotify/login returning and
+	// its loopback callback completing.
+	LoginInProgress bool `json:"loginInProgress"`
+	// LoginURL is the in-progress login's authorize URL, for the UI's
+	// copyable fallback if the daemon's best-effort browser-open didn't
+	// work. Empty unless LoginInProgress.
+	LoginURL string `json:"loginUrl,omitempty"`
+	// User is the authorized account's display name, empty until
+	// confirmed.
+	User string `json:"user,omitempty"`
+	// LastError is the most recent login/refresh/validation failure's
+	// message, empty if there is none to report.
+	LastError string `json:"lastError,omitempty"`
+}
 ```
 
 ### `State` (struct)
@@ -1598,6 +1903,9 @@ type State struct {
 	// Media is MPRIS player discovery/selection status -- see
 	// media.Tracker (M09).
 	Media MediaState `json:"media"`
+	// Spotify is the Spotify Web API OAuth connection's status -- see
+	// spotify.Service (M10).
+	Spotify SpotifyState `json:"spotify"`
 
 	// Controls lists only controls that currently do something -- one
 	// bound on the active layer (falling back to layer 0, same as
@@ -1768,6 +2076,24 @@ EventType identifies one GET /events frame's payload.
 type EventType string
 ```
 
+### `SpotifyDeviceList`
+
+```go
+type SpotifyDeviceList []SpotifyDevice
+```
+
+### `SpotifyPlaylistList`
+
+SpotifyPlaylistList/SpotifyDeviceList are named (not bare []T) so
+daemon/internal/schema's OpenAPI component reflection -- which only
+produces a named $defs entry for a type with its own name, not an
+anonymous slice -- has something to reflect GET /spotify/playlists|
+devices' response body from.
+
+```go
+type SpotifyPlaylistList []SpotifyPlaylist
+```
+
 **functions:**
 
 ```go
@@ -1805,6 +2131,7 @@ func errNoCapabilitiesProvider() error
 func errNoConfigStore() error
 func errNoHub() error
 func errNoLearnController() error
+func errNoSpotifyProvider() error
 func errNoStateProvider() error
 func errNotImplemented(fn string) error
 func listen(path string) (net.Listener, error)
@@ -1816,7 +2143,7 @@ func writeError(w http.ResponseWriter, log *slog.Logger, status int, code ErrorC
 func writeJSON(w http.ResponseWriter, log *slog.Logger, status int, v any)
 ```
 
-**consts/vars:** `EventProtocolVersion`, `ShutdownGrace`, `SocketName`, `defaultFlushInterval`, `eventKeepAlive`, `maxConfigBodyBytes`, `subscriberEventQueueDepth`
+**consts/vars:** `ErrSpotifyNotAuthorized`, `ErrSpotifyNotConfigured`, `EventProtocolVersion`, `ShutdownGrace`, `SocketName`, `defaultFlushInterval`, `eventKeepAlive`, `maxConfigBodyBytes`, `subscriberEventQueueDepth`
 
 **tests:** `audio_test.go`, `capabilities_test.go`, `handlers_test.go`, `hub_test.go`, `learn_test.go`, `routes_test.go`, `server_test.go`, `stream_test.go`
 
@@ -2513,6 +2840,7 @@ func TestMigrateFutureVersionPassedThrough(t *testing.T)
 func TestMigrateMissingOrZeroVersionTreatedAsOne(t *testing.T)
 func TestMigrateNoPathReturnsError(t *testing.T)
 func TestMigrateV1ToV2AddsMediaSettings(t *testing.T)
+func TestMigrateV2ToV3AddsSpotifySettings(t *testing.T)
 func TestPathHonorsXDGConfigHome(t *testing.T)
 func TestSaveIsAtomicNoStrayTempFiles(t *testing.T)
 func TestSaveRejectsInvalidConfig(t *testing.T)
@@ -2523,6 +2851,7 @@ func decode(doc map[string]any) (model.Config, error)
 func decodeOrFatal(t *testing.T, doc map[string]any) model.Config
 func defaultDoc(t *testing.T) map[string]any
 func migrateV1toV2(doc map[string]any) (map[string]any, error)
+func migrateV2toV3(doc map[string]any) (map[string]any, error)
 func schemaVersionOf(doc map[string]any) int
 ```
 
@@ -4606,13 +4935,14 @@ the shape and cross-referential validation.
 
 ```go
 type Config struct {
-	SchemaVersion   int           `json:"schemaVersion"`
-	ActiveProfileID string        `json:"activeProfileId"`
-	Profiles        []Profile     `json:"profiles"`
-	AppMatchers     []AppMatcher  `json:"appMatchers"`
-	AppGroups       []AppGroup    `json:"appGroups"`
-	Scenes          []Scene       `json:"scenes"`
-	Media           MediaSettings `json:"media"`
+	SchemaVersion   int             `json:"schemaVersion"`
+	ActiveProfileID string          `json:"activeProfileId"`
+	Profiles        []Profile       `json:"profiles"`
+	AppMatchers     []AppMatcher    `json:"appMatchers"`
+	AppGroups       []AppGroup      `json:"appGroups"`
+	Scenes          []Scene         `json:"scenes"`
+	Media           MediaSettings   `json:"media"`
+	Spotify         SpotifySettings `json:"spotify"`
 }
 ```
 
@@ -4975,6 +5305,134 @@ methods:
 func (SinkCycleDefaultAction) ActionType() ActionType
 ```
 
+### `SpotifyAddToPlaylistAction` (struct)
+
+SpotifyAddToPlaylistAction adds the currently-playing track to a
+specific, pre-configured playlist. PlaylistID accepts a bare base62
+playlist ID, a spotify:playlist:... URI, or an open.spotify.com
+playlist URL -- see daemon/internal/spotify.ParseID, which the
+handler normalizes it through.
+
+```go
+type SpotifyAddToPlaylistAction struct {
+	PlaylistID string `json:"playlistId"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyAddToPlaylistAction) ActionType() ActionType
+```
+
+### `SpotifyLikeToggleAction` (struct)
+
+SpotifyLikeToggleAction saves the currently-playing track to the
+user's Liked Songs library if it isn't already there, or removes it
+if it is. Resolved against Spotify's own "currently playing" endpoint
+at dispatch time -- there is no Target/PlayerRef, unlike the M09
+media actions, since this only ever means "the Spotify account this
+daemon is authorized as," not an MPRIS bus name.
+
+```go
+type SpotifyLikeToggleAction struct{}
+```
+
+methods:
+
+```go
+func (SpotifyLikeToggleAction) ActionType() ActionType
+```
+
+### `SpotifyQueueTrackAction` (struct)
+
+SpotifyQueueTrackAction adds TrackID (a bare ID, spotify:track:... URI,
+or open.spotify.com track URL) to the playback queue on the currently
+active device.
+
+```go
+type SpotifyQueueTrackAction struct {
+	TrackID string `json:"trackId"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyQueueTrackAction) ActionType() ActionType
+```
+
+### `SpotifyRemoveFromPlaylistAction` (struct)
+
+SpotifyRemoveFromPlaylistAction removes the currently-playing track
+from PlaylistID (same ID forms as SpotifyAddToPlaylistAction).
+
+```go
+type SpotifyRemoveFromPlaylistAction struct {
+	PlaylistID string `json:"playlistId"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyRemoveFromPlaylistAction) ActionType() ActionType
+```
+
+### `SpotifySettings` (struct)
+
+SpotifySettings configures daemon/internal/spotify's OAuth PKCE flow.
+See specs/milestones/M10-spotify-web-api.md.
+
+```go
+type SpotifySettings struct {
+	// ClientID is the Spotify Developer application's Client ID. It is
+	// not a secret under PKCE (there is no client secret) and is safe
+	// to keep in config.json; the refresh token that *is* sensitive is
+	// stored separately via the Secret Service D-Bus API, never here.
+	ClientID string `json:"clientId"`
+}
+```
+
+### `SpotifyStartPlaylistAction` (struct)
+
+SpotifyStartPlaylistAction starts playback of PlaylistID on the
+currently active Spotify Connect device.
+
+```go
+type SpotifyStartPlaylistAction struct {
+	PlaylistID string `json:"playlistId"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyStartPlaylistAction) ActionType() ActionType
+```
+
+### `SpotifyTransferPlaybackAction` (struct)
+
+SpotifyTransferPlaybackAction moves playback to the Spotify Connect
+device named DeviceName (matched case-insensitively against
+GET /spotify/devices at dispatch time -- device IDs are not stable
+across client restarts, so binding by name is the only usable
+option). Play controls whether playback resumes on the new device
+(Spotify's own transfer endpoint's "play" flag) or stays paused.
+
+```go
+type SpotifyTransferPlaybackAction struct {
+	DeviceName string `json:"deviceName"`
+	Play       bool   `json:"play,omitempty"`
+}
+```
+
+methods:
+
+```go
+func (SpotifyTransferPlaybackAction) ActionType() ActionType
+```
+
 ### `Target` (struct)
 
 Target names what an Action operates on. Ref's meaning depends on
@@ -5314,13 +5772,14 @@ here.
 
 ```go
 type Config struct {
-	SchemaVersion   int                 `json:"schemaVersion"`
-	ActiveProfileID string              `json:"activeProfileId"`
-	Profiles        []Profile           `json:"profiles"`
-	AppMatchers     []model.AppMatcher  `json:"appMatchers"`
-	AppGroups       []model.AppGroup    `json:"appGroups"`
-	Scenes          []model.Scene       `json:"scenes"`
-	Media           model.MediaSettings `json:"media"`
+	SchemaVersion   int                   `json:"schemaVersion"`
+	ActiveProfileID string                `json:"activeProfileId"`
+	Profiles        []Profile             `json:"profiles"`
+	AppMatchers     []model.AppMatcher    `json:"appMatchers"`
+	AppGroups       []model.AppGroup      `json:"appGroups"`
+	Scenes          []model.Scene         `json:"scenes"`
+	Media           model.MediaSettings   `json:"media"`
+	Spotify         model.SpotifySettings `json:"spotify"`
 }
 ```
 
@@ -5499,4 +5958,481 @@ func resolveDef(t *testing.T, defs map[string]any, name string) map[string]any
 **consts/vars:** `componentTypes`
 
 **tests:** `devicelayout_test.go`, `openapi_test.go`, `schema_test.go`
+
+## `internal/spotify`
+
+Package spotify implements the Spotify Web API actions from
+specs/milestones/M10-spotify-web-api.md: OAuth 2.0 PKCE over a
+loopback redirect, refresh-token storage via the Secret Service
+D-Bus API, and thin REST client methods for the handful of endpoints
+actions.SpotifyHandlers needs.
+
+### `SecretStore` (interface)
+
+SecretStore persists one string secret per account (here: per Spotify
+Client ID, so switching Client ID in config cleanly starts a fresh
+login rather than reusing a stale token under a different app
+identity). account is opaque to the store.
+
+```go
+Get(account string) (token string, ok bool, err error)
+Set(account, token string) error
+Delete(account string) error
+```
+
+### `APIError` (struct)
+
+APIError is returned for any non-2xx response client.go's do doesn't
+map to a package sentinel (ErrNotAuthorized, ErrNoActiveDevice,
+ErrNothingPlaying).
+
+```go
+type APIError struct {
+	Status  int
+	Message string
+}
+```
+
+methods:
+
+```go
+func (e *APIError) Error() string
+```
+
+### `Auth` (struct)
+
+Auth drives the PKCE authorization-code flow over a one-shot loopback
+HTTP listener (specs/adr's redirect-URI rules: 127.0.0.1, not
+"localhost", with no fixed port registered -- see
+specs/milestones/M10-spotify-web-api.md's Design refinements). Only
+one login flow runs at a time; starting a new one cancels whatever
+flow was in progress.
+
+```go
+type Auth struct {
+	AuthorizeURL string
+	TokenURL     string
+	HTTPClient   *http.Client
+	Logger       *slog.Logger
+
+	mu      sync.Mutex
+	session *loginSession
+}
+```
+
+methods:
+
+```go
+func (a *Auth) RefreshTokens(ctx context.Context, clientID, refreshToken string) (Tokens, error)
+func (a *Auth) StartLogin(ctx context.Context, clientID string, onComplete func(Tokens, error)) (authorizeURL string, err error)
+func (a *Auth) buildAuthorizeURL(clientID, redirectURI, state, verifier string) string
+func (a *Auth) exchangeCode(ctx context.Context, clientID, code, redirectURI, verifier string) (Tokens, error)
+func (a *Auth) postToken(ctx context.Context, form url.Values) (Tokens, error)
+```
+
+### `Client` (struct)
+
+Client is a thin REST client over the handful of Spotify Web API
+endpoints actions.SpotifyHandlers needs -- not a general SDK (see
+specs/milestones/M10-spotify-web-api.md's Scope). Every request path
+reflects the February 2026 Web API changes: /me/library (not
+/me/tracks) for save/remove/check, and /playlists/{id}/items (not
+/playlists/{id}/tracks) for playlist membership.
+
+```go
+type Client struct {
+	BaseURL    string
+	HTTPClient *http.Client
+	Tokens     *TokenManager
+	// Account returns the current Spotify Client ID -- the TokenManager
+	// account key. Read fresh on every call, the same live-config-read
+	// pattern actions.MediaOptions.IgnorePlayers uses.
+	Account func() string
+
+	meMu sync.Mutex
+	meID string // cached GET /me id, for Playlists' Editable field
+}
+```
+
+methods:
+
+```go
+func (c *Client) AddPlaylistItems(ctx context.Context, playlistID, uri string) error
+func (c *Client) CurrentlyPlaying(ctx context.Context) (CurrentTrack, error)
+func (c *Client) Devices(ctx context.Context) ([]Device, error)
+func (c *Client) LibraryContains(ctx context.Context, uri string) (bool, error)
+func (c *Client) Me(ctx context.Context) (User, error)
+func (c *Client) PlayContext(ctx context.Context, contextURI string) error
+func (c *Client) Playlists(ctx context.Context) ([]Playlist, error)
+func (c *Client) Queue(ctx context.Context, trackURI string) error
+func (c *Client) RemoveFromLibrary(ctx context.Context, uri string) error
+func (c *Client) RemovePlaylistItems(ctx context.Context, playlistID, uri string) error
+func (c *Client) SaveToLibrary(ctx context.Context, uri string) error
+func (c *Client) Transfer(ctx context.Context, deviceID string, play bool) error
+func (c *Client) currentUserID(ctx context.Context) (string, error)
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, body, out any) error
+func (c *Client) handleResponse(resp *http.Response, out any) error
+```
+
+### `CurrentTrack` (struct)
+
+CurrentTrack is the subset of GET /me/player/currently-playing this
+package needs.
+
+```go
+type CurrentTrack struct {
+	URI     string
+	ID      string
+	Name    string
+	Artists []string
+}
+```
+
+### `Device` (struct)
+
+Device is one Spotify Connect device from GET /me/player/devices.
+
+```go
+type Device struct {
+	ID       string
+	Name     string
+	Type     string
+	IsActive bool
+}
+```
+
+### `FakeSecretStore` (struct)
+
+FakeSecretStore is an in-memory SecretStore for tests -- no D-Bus,
+no real Secret Service required. See internal/media's FakeBackend for
+the same pattern applied to a different hardware-facing interface.
+
+```go
+type FakeSecretStore struct {
+	mu     sync.Mutex
+	tokens map[string]string
+}
+```
+
+methods:
+
+```go
+func (f *FakeSecretStore) Delete(account string) error
+func (f *FakeSecretStore) Get(account string) (string, bool, error)
+func (f *FakeSecretStore) Set(account, token string) error
+func (f *FakeSecretStore) tokenExists(account string) bool
+```
+
+### `Playlist` (struct)
+
+Playlist is one playlist from GET /me/playlists, with Editable
+resolved from ownership/collaborative status against the
+authorized user's own id (GET /me, cached).
+
+```go
+type Playlist struct {
+	ID       string
+	Name     string
+	Owner    string
+	Editable bool
+}
+```
+
+### `Service` (struct)
+
+Service ties together Auth, TokenManager, and Client behind the
+current Config.Spotify.ClientID (read fresh via clientID on every
+call, the same live-config-read pattern actions.MediaOptions.
+IgnorePlayers uses -- so an edit through the UI's Spotify tab applies
+immediately with no separate push path).
+
+```go
+type Service struct {
+	clientID func() string
+	auth     *Auth
+	tokens   *TokenManager
+	client   *Client
+	logger   *slog.Logger
+	onChange func()
+
+	mu     sync.Mutex
+	status Status
+}
+```
+
+methods:
+
+```go
+func (s *Service) Client() *Client
+func (s *Service) Login(ctx context.Context) (string, error)
+func (s *Service) Logout() error
+func (s *Service) Status() Status
+func (s *Service) ValidateStoredToken(ctx context.Context)
+func (s *Service) notify()
+```
+
+### `ServiceOptions` (struct)
+
+ServiceOptions configures Service. The zero value is sane defaults.
+
+```go
+type ServiceOptions struct {
+	Logger *slog.Logger
+	// OnChange is called (never with Service's own lock held) whenever
+	// Status() would return something new -- wired to hub.NotifyStateDirty
+	// in cmd/knobd, the same pattern media.TrackerOptions.OnChange uses.
+	OnChange func()
+	// AuthorizeURL/TokenURL/APIBaseURL override the real Spotify
+	// endpoints, for tests.
+	AuthorizeURL string
+	TokenURL     string
+	APIBaseURL   string
+}
+```
+
+### `Status` (struct)
+
+Status is a point-in-time snapshot of Service's connection state, for
+api.State.Spotify (see cmd/knobd's adapter).
+
+```go
+type Status struct {
+	// Configured is true once Config.Spotify.ClientID is non-empty.
+	Configured bool
+	// Authorized is true once a refresh token is stored and was last
+	// confirmed good (or has never been checked and failed).
+	Authorized bool
+	// LoginInProgress is true between Login() returning an authorize
+	// URL and its callback completing.
+	LoginInProgress bool
+	// LoginURL is the most recent authorize URL from an in-progress
+	// login, for the UI's copyable fallback if the daemon's best-effort
+	// xdg-open didn't work.
+	LoginURL string
+	// User is the authorized account's display name (or id, if no
+	// display name is set), empty until confirmed.
+	User string
+	// LastError is the most recent login/refresh/validation failure's
+	// message, cleared on the next successful one. Empty means no
+	// error to report.
+	LastError string
+}
+```
+
+### `TokenError` (struct)
+
+TokenError wraps a token-endpoint error response so callers (notably
+token.go, which treats "invalid_grant" specially) can check Code
+without string-matching Error().
+
+```go
+type TokenError struct {
+	Code        string
+	Description string
+}
+```
+
+methods:
+
+```go
+func (e *TokenError) Error() string
+```
+
+### `TokenManager` (struct)
+
+TokenManager keeps one account's access token in memory (never
+persisted -- see the package doc comment) and refreshes it from the
+SecretStore-backed refresh token, transparently, ahead of expiry or
+on demand after a live call's 401. account is always the current
+Spotify Client ID (Service.clientID()) -- switching Client ID in
+config means a different SecretStore entry and a distinct in-memory
+cache slot, so a stale token under the old identity is never reused.
+
+```go
+type TokenManager struct {
+	auth   *Auth
+	store  SecretStore
+	logger *slog.Logger
+
+	mu          sync.Mutex
+	account     string
+	accessToken string
+	expiresAt   time.Time
+}
+```
+
+methods:
+
+```go
+func (t *TokenManager) AccessToken(ctx context.Context, account string) (string, error)
+func (t *TokenManager) Authorized(account string) bool
+func (t *TokenManager) Invalidate(account string)
+func (t *TokenManager) Logout(account string) error
+func (t *TokenManager) SetTokens(account string, tokens Tokens) error
+func (t *TokenManager) refresh(ctx context.Context, account string) (string, error)
+```
+
+### `Tokens` (struct)
+
+Tokens is the result of a successful authorization-code or
+refresh-token exchange.
+
+```go
+type Tokens struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    time.Time
+}
+```
+
+### `User` (struct)
+
+User is the subset of GET /me this package needs.
+
+```go
+type User struct {
+	ID          string
+	DisplayName string
+}
+```
+
+### `apiError` (struct)
+
+apiError is Spotify's REST error body shape: {"error":{"status":404,
+"message":"...","reason":"NO_ACTIVE_DEVICE"}} -- the player endpoints
+add "reason"; other endpoints omit it.
+
+```go
+type apiError struct {
+	Error struct {
+		Status  int    `json:"status"`
+		Message string `json:"message"`
+		Reason  string `json:"reason"`
+	} `json:"error"`
+}
+```
+
+### `dbusSecretStore` (struct)
+
+dbusSecretStore is the real Secret Service-backed SecretStore.
+
+```go
+type dbusSecretStore struct {
+	conn    *dbus.Conn
+	session dbus.ObjectPath
+}
+```
+
+methods:
+
+```go
+func (s *dbusSecretStore) Delete(account string) error
+func (s *dbusSecretStore) Get(account string) (string, bool, error)
+func (s *dbusSecretStore) Set(account, token string) error
+func (s *dbusSecretStore) attributes(account string) map[string]string
+func (s *dbusSecretStore) defaultCollection() (dbus.ObjectPath, error)
+func (s *dbusSecretStore) findItem(account string) (dbus.ObjectPath, bool, error)
+func (s *dbusSecretStore) runPrompt(path dbus.ObjectPath) error
+func (s *dbusSecretStore) unlock(path dbus.ObjectPath) error
+```
+
+### `loginSession` (struct)
+
+```go
+type loginSession struct {
+	listener net.Listener
+	cancel   context.CancelFunc
+}
+```
+
+### `secretValue` (struct)
+
+secretValue is the (session, parameters, value, content_type) struct
+org.freedesktop.Secret.Service.GetSecrets/Item.GetSecret use, decoded
+via dbus.Store's struct support.
+
+```go
+type secretValue struct {
+	Session     dbus.ObjectPath
+	Parameters  []byte
+	Value       []byte
+	ContentType string
+}
+```
+
+### `tokenErrorResponse` (struct)
+
+tokenErrorResponse is Spotify's token-endpoint error body shape,
+e.g. {"error":"invalid_grant","error_description":"..."}.
+
+```go
+type tokenErrorResponse struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+}
+```
+
+### `unavailableSecretStore` (struct)
+
+unavailableSecretStore is used when no D-Bus session bus was
+available at startup, mirroring media.Unavailable()'s posture: every
+spotify.* action reports ErrUnavailable rather than the daemon
+failing to start.
+
+```go
+type unavailableSecretStore struct{}
+```
+
+methods:
+
+```go
+func (unavailableSecretStore) Delete(account string) error
+func (unavailableSecretStore) Get(account string) (string, bool, error)
+func (unavailableSecretStore) Set(account, token string) error
+```
+
+**functions:**
+
+```go
+func ParseID(wantKind, s string) (string, error)
+func TestChallengeFromVerifierKnownVector(t *testing.T)
+func TestClientAddPlaylistItemsUsesItemsPath(t *testing.T)
+func TestClientCurrentlyPlayingNothingPlaying(t *testing.T)
+func TestClientLibraryContains(t *testing.T)
+func TestClientPlayerErrorNoActiveDevice(t *testing.T)
+func TestClientPlaylistsEditableFlag(t *testing.T)
+func TestClientRetriesOnceOn401(t *testing.T)
+func TestClientSaveToLibraryUsesURIsAndNewEndpoint(t *testing.T)
+func TestGenerateVerifierLengthAndUniqueness(t *testing.T)
+func TestParseID(t *testing.T)
+func TestRefreshTokensInvalidGrant(t *testing.T)
+func TestServiceLoginFlow(t *testing.T)
+func TestServiceLogout(t *testing.T)
+func TestServiceStatusUnconfiguredWithoutClientID(t *testing.T)
+func TestServiceValidateStoredTokenSuccess(t *testing.T)
+func TestStartLoginErrorCallback(t *testing.T)
+func TestStartLoginFullFlow(t *testing.T)
+func TestStartLoginSecondCallCancelsFirst(t *testing.T)
+func TestStartLoginStateMismatch(t *testing.T)
+func TestTokenManagerAccessTokenNotAuthorized(t *testing.T)
+func TestTokenManagerInvalidGrantUnauthorizesAndDeletes(t *testing.T)
+func TestTokenManagerInvalidateForcesRefresh(t *testing.T)
+func TestTokenManagerLogout(t *testing.T)
+func TestTokenManagerPersistsRotatedRefreshToken(t *testing.T)
+func TestTokenManagerRefreshesWhenExpired(t *testing.T)
+func TestTokenManagerSetTokensPrimesCache(t *testing.T)
+func TestURI(t *testing.T)
+func URI(kind, id string) string
+func challengeFromVerifier(verifier string) string
+func displayName(u User) string
+func fakeTokenServer(t *testing.T, handle func(w http.ResponseWriter, form url.Values)) *httptest.Server
+func generateVerifier() (string, error)
+func newTestTokenManager(t *testing.T, tokenSrv *httptest.Server) (*TokenManager, *FakeSecretStore)
+func waitForChange(t *testing.T, ch chan struct{})
+func writeCallbackPage(w http.ResponseWriter, ok bool)
+```
+
+**consts/vars:** `DefaultAPIBaseURL`, `DefaultAuthorizeURL`, `DefaultTokenURL`, `ErrNoActiveDevice`, `ErrNotAuthorized`, `ErrNothingPlaying`, `ErrUnavailable`, `collectionIface`, `farFuture`, `idPattern`, `itemIface`, `loginTimeout`, `promptIface`, `promptTimeout`, `scopes`, `secretApplication`, `secretService`, `secretsBasePath`, `secretsBusName`, `serviceIface`, `tokenSkew`, `uriPattern`, `urlPattern`
+
+**tests:** `auth_test.go`, `client_test.go`, `id_test.go`, `service_test.go`, `token_test.go`
 

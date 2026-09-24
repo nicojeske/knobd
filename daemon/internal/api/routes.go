@@ -114,6 +114,52 @@ func Routes() []Route {
 			},
 		},
 		{
+			Method:      "POST",
+			Path:        "/spotify/login",
+			OperationID: "spotifyLogin",
+			Summary:     "Start the Spotify OAuth flow",
+			Description: "Starts (or restarts) the PKCE authorization-code flow over a loopback redirect and returns the authorize URL. The daemon also makes a best-effort attempt to open it in a browser itself.",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "SpotifyLoginResponse", Description: "The authorize URL to open."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No Spotify Client ID is configured, or no SpotifyProvider is wired up."},
+			},
+		},
+		{
+			Method:      "DELETE",
+			Path:        "/spotify/login",
+			OperationID: "spotifyLogout",
+			Summary:     "Disconnect from Spotify",
+			Description: "Deletes the stored refresh token and clears the connection status.",
+			Responses: []RouteResponse{
+				{Status: 204, Description: "Disconnected."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No SpotifyProvider is wired up."},
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/spotify/playlists",
+			OperationID: "spotifyPlaylists",
+			Summary:     "List the authorized user's playlists",
+			Description: "For the binding editor's playlist picker (spotify.add_to_playlist/remove_from_playlist/start_playlist).",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "SpotifyPlaylistList", Description: "The user's playlists."},
+				{Status: 409, Schema: "ErrorResponse", Description: "Not authorized yet -- connect via the Spotify tab first."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No SpotifyProvider is wired up."},
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/spotify/devices",
+			OperationID: "spotifyDevices",
+			Summary:     "List available Spotify Connect devices",
+			Description: "For spotify.transfer_playback's device picker.",
+			Responses: []RouteResponse{
+				{Status: 200, Schema: "SpotifyDeviceList", Description: "Currently available devices."},
+				{Status: 409, Schema: "ErrorResponse", Description: "Not authorized yet -- connect via the Spotify tab first."},
+				{Status: 503, Schema: "ErrorResponse", Description: "No SpotifyProvider is wired up."},
+			},
+		},
+		{
 			Method:      "GET",
 			Path:        "/events",
 			OperationID: "events",

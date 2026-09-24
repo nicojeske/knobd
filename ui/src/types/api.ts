@@ -112,6 +112,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/spotify/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available Spotify Connect devices
+         * @description For spotify.transfer_playback's device picker.
+         */
+        get: operations["spotifyDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/spotify/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the Spotify OAuth flow
+         * @description Starts (or restarts) the PKCE authorization-code flow over a loopback redirect and returns the authorize URL. The daemon also makes a best-effort attempt to open it in a browser itself.
+         */
+        post: operations["spotifyLogin"];
+        /**
+         * Disconnect from Spotify
+         * @description Deletes the stored refresh token and clears the connection status.
+         */
+        delete: operations["spotifyLogout"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/spotify/playlists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authorized user's playlists
+         * @description For the binding editor's playlist picker (spotify.add_to_playlist/remove_from_playlist/start_playlist).
+         */
+        get: operations["spotifyPlaylists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/state": {
         parameters: {
             query?: never;
@@ -210,6 +274,30 @@ export interface components {
             params: components["schemas"]["SinkCycleDefaultAction"];
         } | {
             /** @constant */
+            type: "spotify.add_to_playlist";
+            params: components["schemas"]["SpotifyAddToPlaylistAction"];
+        } | {
+            /** @constant */
+            type: "spotify.like_toggle";
+            params: components["schemas"]["SpotifyLikeToggleAction"];
+        } | {
+            /** @constant */
+            type: "spotify.queue_track";
+            params: components["schemas"]["SpotifyQueueTrackAction"];
+        } | {
+            /** @constant */
+            type: "spotify.remove_from_playlist";
+            params: components["schemas"]["SpotifyRemoveFromPlaylistAction"];
+        } | {
+            /** @constant */
+            type: "spotify.start_playlist";
+            params: components["schemas"]["SpotifyStartPlaylistAction"];
+        } | {
+            /** @constant */
+            type: "spotify.transfer_playback";
+            params: components["schemas"]["SpotifyTransferPlaybackAction"];
+        } | {
+            /** @constant */
             type: "volume.adjust";
             params: components["schemas"]["VolumeAdjustAction"];
         } | {
@@ -296,7 +384,7 @@ export interface components {
             action: components["schemas"]["Action"];
         };
         Capabilities: {
-            implementedActions: ("audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set")[];
+            implementedActions: ("audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "spotify.add_to_playlist" | "spotify.like_toggle" | "spotify.queue_track" | "spotify.remove_from_playlist" | "spotify.start_playlist" | "spotify.transfer_playback" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set")[];
             supportedTargetKinds: ("default_sink" | "sink" | "default_source" | "source" | "app" | "group" | "focused" | "all_streams")[];
             features: components["schemas"]["Features"];
         };
@@ -308,6 +396,7 @@ export interface components {
             appGroups: components["schemas"]["AppGroup"][];
             scenes: components["schemas"]["Scene"][];
             media: components["schemas"]["MediaSettings"];
+            spotify: components["schemas"]["SpotifySettings"];
         };
         ConfigChanged: {
             revision: number;
@@ -322,7 +411,7 @@ export interface components {
             /** @enum {string} */
             gesture: "turn" | "press" | "hold" | "release" | "double_press" | "move";
             /** @enum {string} */
-            actionType: "audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set";
+            actionType: "audio.duck_hold" | "audio.solo_toggle" | "knob.assign_focused_app" | "knob.clear" | "knob.lock_toggle" | "layer.cycle" | "layer.latch" | "layer.momentary" | "media.now_playing" | "media.seek" | "media.target_cycle" | "media.transport" | "mic.push_to_mute" | "mic.push_to_talk" | "scene.apply" | "scene.save" | "shell.run" | "sink.cycle_default" | "spotify.add_to_playlist" | "spotify.like_toggle" | "spotify.queue_track" | "spotify.remove_from_playlist" | "spotify.start_playlist" | "spotify.transfer_playback" | "volume.adjust" | "volume.balance" | "volume.follow" | "volume.mute_toggle" | "volume.set";
             target?: components["schemas"]["Target"];
             resolved?: components["schemas"]["ResolvedTarget"];
         };
@@ -334,7 +423,7 @@ export interface components {
         };
         ErrorResponse: {
             /** @enum {string} */
-            code: "invalid_json" | "unsupported_schema_version" | "invalid_config" | "unavailable" | "internal" | "forbidden_origin" | "slow_consumer";
+            code: "invalid_json" | "unsupported_schema_version" | "invalid_config" | "unavailable" | "internal" | "forbidden_origin" | "slow_consumer" | "spotify_not_authorized";
             message: string;
         };
         Event: {
@@ -463,6 +552,51 @@ export interface components {
         SinkCycleDefaultAction: {
             sinkNames: string[];
         };
+        SpotifyAddToPlaylistAction: {
+            playlistId: string;
+        };
+        SpotifyDevice: {
+            id: string;
+            name: string;
+            type?: string;
+            active: boolean;
+        };
+        SpotifyDeviceList: components["schemas"]["SpotifyDevice"][];
+        SpotifyLikeToggleAction: Record<string, never>;
+        SpotifyLoginResponse: {
+            authorizeUrl: string;
+        };
+        SpotifyPlaylist: {
+            id: string;
+            name: string;
+            owner?: string;
+            editable: boolean;
+        };
+        SpotifyPlaylistList: components["schemas"]["SpotifyPlaylist"][];
+        SpotifyQueueTrackAction: {
+            trackId: string;
+        };
+        SpotifyRemoveFromPlaylistAction: {
+            playlistId: string;
+        };
+        SpotifySettings: {
+            clientId: string;
+        };
+        SpotifyStartPlaylistAction: {
+            playlistId: string;
+        };
+        SpotifyState: {
+            configured: boolean;
+            authorized: boolean;
+            loginInProgress: boolean;
+            loginUrl?: string;
+            user?: string;
+            lastError?: string;
+        };
+        SpotifyTransferPlaybackAction: {
+            deviceName: string;
+            play?: boolean;
+        };
         State: {
             /** Format: date-time */
             now: string;
@@ -472,6 +606,7 @@ export interface components {
             profile: components["schemas"]["ProfileState"];
             learn: components["schemas"]["LearnState"];
             media: components["schemas"]["MediaState"];
+            spotify: components["schemas"]["SpotifyState"];
             controls: components["schemas"]["ControlState"][];
         };
         Target: {
@@ -733,6 +868,138 @@ export interface operations {
                 content?: never;
             };
             /** @description No learn controller is wired up. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    spotifyDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Currently available devices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpotifyDeviceList"];
+                };
+            };
+            /** @description Not authorized yet -- connect via the Spotify tab first. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No SpotifyProvider is wired up. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    spotifyLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The authorize URL to open. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpotifyLoginResponse"];
+                };
+            };
+            /** @description No Spotify Client ID is configured, or no SpotifyProvider is wired up. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    spotifyLogout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No SpotifyProvider is wired up. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    spotifyPlaylists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's playlists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpotifyPlaylistList"];
+                };
+            };
+            /** @description Not authorized yet -- connect via the Spotify tab first. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No SpotifyProvider is wired up. */
             503: {
                 headers: {
                     [name: string]: unknown;

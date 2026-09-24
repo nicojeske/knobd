@@ -57,6 +57,15 @@ const (
 	ActionMediaTargetCycle ActionType = "media.target_cycle"
 	ActionMediaNowPlaying  ActionType = "media.now_playing"
 
+	// -- Spotify Web API (specs/milestones/M10-spotify-web-api.md) --
+
+	ActionSpotifyLikeToggle         ActionType = "spotify.like_toggle"
+	ActionSpotifyAddToPlaylist      ActionType = "spotify.add_to_playlist"
+	ActionSpotifyRemoveFromPlaylist ActionType = "spotify.remove_from_playlist"
+	ActionSpotifyStartPlaylist      ActionType = "spotify.start_playlist"
+	ActionSpotifyQueueTrack         ActionType = "spotify.queue_track"
+	ActionSpotifyTransferPlayback   ActionType = "spotify.transfer_playback"
+
 	// -- Extended / system (specs/milestones/M11-extended-actions.md) --
 
 	ActionSinkCycleDefault ActionType = "sink.cycle_default"
@@ -275,6 +284,67 @@ type MediaNowPlayingAction struct {
 
 func (MediaNowPlayingAction) ActionType() ActionType { return ActionMediaNowPlaying }
 
+// SpotifyLikeToggleAction saves the currently-playing track to the
+// user's Liked Songs library if it isn't already there, or removes it
+// if it is. Resolved against Spotify's own "currently playing" endpoint
+// at dispatch time -- there is no Target/PlayerRef, unlike the M09
+// media actions, since this only ever means "the Spotify account this
+// daemon is authorized as," not an MPRIS bus name.
+type SpotifyLikeToggleAction struct{}
+
+func (SpotifyLikeToggleAction) ActionType() ActionType { return ActionSpotifyLikeToggle }
+
+// SpotifyAddToPlaylistAction adds the currently-playing track to a
+// specific, pre-configured playlist. PlaylistID accepts a bare base62
+// playlist ID, a spotify:playlist:... URI, or an open.spotify.com
+// playlist URL -- see daemon/internal/spotify.ParseID, which the
+// handler normalizes it through.
+type SpotifyAddToPlaylistAction struct {
+	PlaylistID string `json:"playlistId"`
+}
+
+func (SpotifyAddToPlaylistAction) ActionType() ActionType { return ActionSpotifyAddToPlaylist }
+
+// SpotifyRemoveFromPlaylistAction removes the currently-playing track
+// from PlaylistID (same ID forms as SpotifyAddToPlaylistAction).
+type SpotifyRemoveFromPlaylistAction struct {
+	PlaylistID string `json:"playlistId"`
+}
+
+func (SpotifyRemoveFromPlaylistAction) ActionType() ActionType {
+	return ActionSpotifyRemoveFromPlaylist
+}
+
+// SpotifyStartPlaylistAction starts playback of PlaylistID on the
+// currently active Spotify Connect device.
+type SpotifyStartPlaylistAction struct {
+	PlaylistID string `json:"playlistId"`
+}
+
+func (SpotifyStartPlaylistAction) ActionType() ActionType { return ActionSpotifyStartPlaylist }
+
+// SpotifyQueueTrackAction adds TrackID (a bare ID, spotify:track:... URI,
+// or open.spotify.com track URL) to the playback queue on the currently
+// active device.
+type SpotifyQueueTrackAction struct {
+	TrackID string `json:"trackId"`
+}
+
+func (SpotifyQueueTrackAction) ActionType() ActionType { return ActionSpotifyQueueTrack }
+
+// SpotifyTransferPlaybackAction moves playback to the Spotify Connect
+// device named DeviceName (matched case-insensitively against
+// GET /spotify/devices at dispatch time -- device IDs are not stable
+// across client restarts, so binding by name is the only usable
+// option). Play controls whether playback resumes on the new device
+// (Spotify's own transfer endpoint's "play" flag) or stays paused.
+type SpotifyTransferPlaybackAction struct {
+	DeviceName string `json:"deviceName"`
+	Play       bool   `json:"play,omitempty"`
+}
+
+func (SpotifyTransferPlaybackAction) ActionType() ActionType { return ActionSpotifyTransferPlayback }
+
 // SinkCycleDefaultAction advances the system default sink to the next
 // entry in SinkNames (wrapping), e.g. cycling headphones -> speakers ->
 // HDMI on one button.
@@ -331,29 +401,35 @@ func newActionEntry[T Action]() actionEntry {
 // completeness check, which fails the build if a new ActionType constant
 // is added above without a matching registry entry.
 var actionRegistry = map[ActionType]actionEntry{
-	ActionVolumeAdjust:         newActionEntry[VolumeAdjustAction](),
-	ActionVolumeSet:            newActionEntry[VolumeSetAction](),
-	ActionVolumeMuteToggle:     newActionEntry[VolumeMuteToggleAction](),
-	ActionVolumeBalance:        newActionEntry[VolumeBalanceAction](),
-	ActionVolumeFollow:         newActionEntry[VolumeFollowAction](),
-	ActionAudioSoloToggle:      newActionEntry[AudioSoloToggleAction](),
-	ActionAudioDuckHold:        newActionEntry[AudioDuckHoldAction](),
-	ActionSceneApply:           newActionEntry[SceneApplyAction](),
-	ActionSceneSave:            newActionEntry[SceneSaveAction](),
-	ActionLayerMomentary:       newActionEntry[LayerMomentaryAction](),
-	ActionLayerLatch:           newActionEntry[LayerLatchAction](),
-	ActionLayerCycle:           newActionEntry[LayerCycleAction](),
-	ActionKnobAssignFocusedApp: newActionEntry[KnobAssignFocusedAppAction](),
-	ActionKnobClear:            newActionEntry[KnobClearAction](),
-	ActionKnobLockToggle:       newActionEntry[KnobLockToggleAction](),
-	ActionMediaTransport:       newActionEntry[MediaTransportAction](),
-	ActionMediaSeek:            newActionEntry[MediaSeekAction](),
-	ActionMediaTargetCycle:     newActionEntry[MediaTargetCycleAction](),
-	ActionMediaNowPlaying:      newActionEntry[MediaNowPlayingAction](),
-	ActionSinkCycleDefault:     newActionEntry[SinkCycleDefaultAction](),
-	ActionMicPushToTalk:        newActionEntry[MicPushToTalkAction](),
-	ActionMicPushToMute:        newActionEntry[MicPushToMuteAction](),
-	ActionShellRun:             newActionEntry[ShellRunAction](),
+	ActionVolumeAdjust:              newActionEntry[VolumeAdjustAction](),
+	ActionVolumeSet:                 newActionEntry[VolumeSetAction](),
+	ActionVolumeMuteToggle:          newActionEntry[VolumeMuteToggleAction](),
+	ActionVolumeBalance:             newActionEntry[VolumeBalanceAction](),
+	ActionVolumeFollow:              newActionEntry[VolumeFollowAction](),
+	ActionAudioSoloToggle:           newActionEntry[AudioSoloToggleAction](),
+	ActionAudioDuckHold:             newActionEntry[AudioDuckHoldAction](),
+	ActionSceneApply:                newActionEntry[SceneApplyAction](),
+	ActionSceneSave:                 newActionEntry[SceneSaveAction](),
+	ActionLayerMomentary:            newActionEntry[LayerMomentaryAction](),
+	ActionLayerLatch:                newActionEntry[LayerLatchAction](),
+	ActionLayerCycle:                newActionEntry[LayerCycleAction](),
+	ActionKnobAssignFocusedApp:      newActionEntry[KnobAssignFocusedAppAction](),
+	ActionKnobClear:                 newActionEntry[KnobClearAction](),
+	ActionKnobLockToggle:            newActionEntry[KnobLockToggleAction](),
+	ActionMediaTransport:            newActionEntry[MediaTransportAction](),
+	ActionMediaSeek:                 newActionEntry[MediaSeekAction](),
+	ActionMediaTargetCycle:          newActionEntry[MediaTargetCycleAction](),
+	ActionMediaNowPlaying:           newActionEntry[MediaNowPlayingAction](),
+	ActionSpotifyLikeToggle:         newActionEntry[SpotifyLikeToggleAction](),
+	ActionSpotifyAddToPlaylist:      newActionEntry[SpotifyAddToPlaylistAction](),
+	ActionSpotifyRemoveFromPlaylist: newActionEntry[SpotifyRemoveFromPlaylistAction](),
+	ActionSpotifyStartPlaylist:      newActionEntry[SpotifyStartPlaylistAction](),
+	ActionSpotifyQueueTrack:         newActionEntry[SpotifyQueueTrackAction](),
+	ActionSpotifyTransferPlayback:   newActionEntry[SpotifyTransferPlaybackAction](),
+	ActionSinkCycleDefault:          newActionEntry[SinkCycleDefaultAction](),
+	ActionMicPushToTalk:             newActionEntry[MicPushToTalkAction](),
+	ActionMicPushToMute:             newActionEntry[MicPushToMuteAction](),
+	ActionShellRun:                  newActionEntry[ShellRunAction](),
 }
 
 // decodeInto unmarshals raw into a zero-value T and returns it as an

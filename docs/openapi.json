@@ -241,6 +241,133 @@
         }
       }
     },
+    "/spotify/devices": {
+      "get": {
+        "operationId": "spotifyDevices",
+        "summary": "List available Spotify Connect devices",
+        "description": "For spotify.transfer_playback's device picker.",
+        "responses": {
+          "200": {
+            "description": "Currently available devices.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpotifyDeviceList"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not authorized yet -- connect via the Spotify tab first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No SpotifyProvider is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/spotify/login": {
+      "delete": {
+        "operationId": "spotifyLogout",
+        "summary": "Disconnect from Spotify",
+        "description": "Deletes the stored refresh token and clears the connection status.",
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "503": {
+            "description": "No SpotifyProvider is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "spotifyLogin",
+        "summary": "Start the Spotify OAuth flow",
+        "description": "Starts (or restarts) the PKCE authorization-code flow over a loopback redirect and returns the authorize URL. The daemon also makes a best-effort attempt to open it in a browser itself.",
+        "responses": {
+          "200": {
+            "description": "The authorize URL to open.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpotifyLoginResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No Spotify Client ID is configured, or no SpotifyProvider is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/spotify/playlists": {
+      "get": {
+        "operationId": "spotifyPlaylists",
+        "summary": "List the authorized user's playlists",
+        "description": "For the binding editor's playlist picker (spotify.add_to_playlist/remove_from_playlist/start_playlist).",
+        "responses": {
+          "200": {
+            "description": "The user's playlists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpotifyPlaylistList"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Not authorized yet -- connect via the Spotify tab first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No SpotifyProvider is wired up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/state": {
       "get": {
         "operationId": "getState",
@@ -554,6 +681,102 @@
               },
               "params": {
                 "$ref": "#/components/schemas/SinkCycleDefaultAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.add_to_playlist"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyAddToPlaylistAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.like_toggle"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyLikeToggleAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.queue_track"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyQueueTrackAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.remove_from_playlist"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyRemoveFromPlaylistAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.start_playlist"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyStartPlaylistAction"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type",
+              "params"
+            ]
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "spotify.transfer_playback"
+              },
+              "params": {
+                "$ref": "#/components/schemas/SpotifyTransferPlaybackAction"
               }
             },
             "additionalProperties": false,
@@ -939,6 +1162,12 @@
                 "scene.save",
                 "shell.run",
                 "sink.cycle_default",
+                "spotify.add_to_playlist",
+                "spotify.like_toggle",
+                "spotify.queue_track",
+                "spotify.remove_from_playlist",
+                "spotify.start_playlist",
+                "spotify.transfer_playback",
                 "volume.adjust",
                 "volume.balance",
                 "volume.follow",
@@ -1010,6 +1239,9 @@
           },
           "media": {
             "$ref": "#/components/schemas/MediaSettings"
+          },
+          "spotify": {
+            "$ref": "#/components/schemas/SpotifySettings"
           }
         },
         "additionalProperties": false,
@@ -1021,7 +1253,8 @@
           "appMatchers",
           "appGroups",
           "scenes",
-          "media"
+          "media",
+          "spotify"
         ]
       },
       "ConfigChanged": {
@@ -1096,6 +1329,12 @@
               "scene.save",
               "shell.run",
               "sink.cycle_default",
+              "spotify.add_to_playlist",
+              "spotify.like_toggle",
+              "spotify.queue_track",
+              "spotify.remove_from_playlist",
+              "spotify.start_playlist",
+              "spotify.transfer_playback",
               "volume.adjust",
               "volume.balance",
               "volume.follow",
@@ -1150,7 +1389,8 @@
               "unavailable",
               "internal",
               "forbidden_origin",
-              "slow_consumer"
+              "slow_consumer",
+              "spotify_not_authorized"
             ]
           },
           "message": {
@@ -1665,6 +1905,185 @@
           "sinkNames"
         ]
       },
+      "SpotifyAddToPlaylistAction": {
+        "properties": {
+          "playlistId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "playlistId"
+        ]
+      },
+      "SpotifyDevice": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "active"
+        ]
+      },
+      "SpotifyDeviceList": {
+        "items": {
+          "$ref": "#/components/schemas/SpotifyDevice"
+        },
+        "type": "array"
+      },
+      "SpotifyLikeToggleAction": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "SpotifyLoginResponse": {
+        "properties": {
+          "authorizeUrl": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "authorizeUrl"
+        ]
+      },
+      "SpotifyPlaylist": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "editable": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "editable"
+        ]
+      },
+      "SpotifyPlaylistList": {
+        "items": {
+          "$ref": "#/components/schemas/SpotifyPlaylist"
+        },
+        "type": "array"
+      },
+      "SpotifyQueueTrackAction": {
+        "properties": {
+          "trackId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "trackId"
+        ]
+      },
+      "SpotifyRemoveFromPlaylistAction": {
+        "properties": {
+          "playlistId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "playlistId"
+        ]
+      },
+      "SpotifySettings": {
+        "properties": {
+          "clientId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "clientId"
+        ]
+      },
+      "SpotifyStartPlaylistAction": {
+        "properties": {
+          "playlistId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "playlistId"
+        ]
+      },
+      "SpotifyState": {
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "authorized": {
+            "type": "boolean"
+          },
+          "loginInProgress": {
+            "type": "boolean"
+          },
+          "loginUrl": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "configured",
+          "authorized",
+          "loginInProgress"
+        ]
+      },
+      "SpotifyTransferPlaybackAction": {
+        "properties": {
+          "deviceName": {
+            "type": "string"
+          },
+          "play": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "deviceName"
+        ]
+      },
       "State": {
         "properties": {
           "now": {
@@ -1689,6 +2108,9 @@
           "media": {
             "$ref": "#/components/schemas/MediaState"
           },
+          "spotify": {
+            "$ref": "#/components/schemas/SpotifyState"
+          },
           "controls": {
             "items": {
               "$ref": "#/components/schemas/ControlState"
@@ -1706,6 +2128,7 @@
           "profile",
           "learn",
           "media",
+          "spotify",
           "controls"
         ]
       },

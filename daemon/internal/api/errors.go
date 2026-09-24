@@ -39,6 +39,10 @@ func errNoHub() error {
 	return fmt.Errorf("api: this server has no event Hub configured")
 }
 
+func errNoSpotifyProvider() error {
+	return fmt.Errorf("api: this server has no SpotifyProvider configured")
+}
+
 // ErrorCode is the machine-readable half of ErrorResponse, so a client
 // can distinguish "you sent something invalid" from "my disk is full"
 // without string-matching Message.
@@ -59,6 +63,9 @@ const (
 	// subscriber receives when it fell far enough behind that the hub
 	// closes its stream rather than blocking every other subscriber.
 	CodeSlowConsumer ErrorCode = "slow_consumer"
+	// CodeSpotifyNotAuthorized is GET /spotify/playlists|devices'
+	// response when there is no valid Spotify access token yet.
+	CodeSpotifyNotAuthorized ErrorCode = "spotify_not_authorized"
 )
 
 // ErrorCodes returns every ErrorCode this package can produce, for
@@ -73,6 +80,7 @@ func ErrorCodes() []ErrorCode {
 		CodeInternal,
 		CodeForbiddenOrigin,
 		CodeSlowConsumer,
+		CodeSpotifyNotAuthorized,
 	}
 }
 

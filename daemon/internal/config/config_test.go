@@ -128,7 +128,7 @@ func copyFixture(t *testing.T, name string) string {
 }
 
 func TestLoadFixturesValidate(t *testing.T) {
-	for _, name := range []string{"v1.json", "v0-unversioned.json"} {
+	for _, name := range []string{"v1.json", "v2.json", "v0-unversioned.json"} {
 		t.Run(name, func(t *testing.T) {
 			path := copyFixture(t, name)
 			cfg, err := Load(path)

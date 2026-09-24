@@ -62,6 +62,10 @@ type Options struct {
 	Audio        AudioProvider
 	Capabilities CapabilitiesProvider
 	Learn        LearnController
+	// Spotify serves the /spotify/* routes. Nil means those routes
+	// answer 503, exactly like a nil Config/State/Audio/Learn/
+	// Capabilities.
+	Spotify SpotifyProvider
 	// Events serves GET /events. Nil means that route answers 503,
 	// exactly like a nil Config/State/Audio/Learn/Capabilities.
 	Events *Hub
@@ -78,6 +82,7 @@ type Server struct {
 	audio        AudioProvider
 	capabilities CapabilitiesProvider
 	learn        LearnController
+	spotify      SpotifyProvider
 	events       *Hub
 	log          *slog.Logger
 }
@@ -95,6 +100,7 @@ func New(opts Options) *Server {
 		audio:        opts.Audio,
 		capabilities: opts.Capabilities,
 		learn:        opts.Learn,
+		spotify:      opts.Spotify,
 		events:       opts.Events,
 		log:          log,
 	}
@@ -109,14 +115,18 @@ func New(opts Options) *Server {
 // sync, not expected user-facing behavior.
 func (s *Server) handlers() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
-		"getConfig":       s.handleGetConfig,
-		"putConfig":       s.handlePutConfig,
-		"getState":        s.handleGetState,
-		"getAudio":        s.handleGetAudio,
-		"getCapabilities": s.handleGetCapabilities,
-		"startLearn":      s.handleStartLearn,
-		"stopLearn":       s.handleStopLearn,
-		"events":          s.handleEvents,
+		"getConfig":        s.handleGetConfig,
+		"putConfig":        s.handlePutConfig,
+		"getState":         s.handleGetState,
+		"getAudio":         s.handleGetAudio,
+		"getCapabilities":  s.handleGetCapabilities,
+		"startLearn":       s.handleStartLearn,
+		"stopLearn":        s.handleStopLearn,
+		"events":           s.handleEvents,
+		"spotifyLogin":     s.handleSpotifyLogin,
+		"spotifyLogout":    s.handleSpotifyLogout,
+		"spotifyPlaylists": s.handleSpotifyPlaylists,
+		"spotifyDevices":   s.handleSpotifyDevices,
 	}
 }
 

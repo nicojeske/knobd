@@ -294,6 +294,102 @@
         {
           "properties": {
             "type": {
+              "const": "spotify.add_to_playlist"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyAddToPlaylistAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "spotify.like_toggle"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyLikeToggleAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "spotify.queue_track"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyQueueTrackAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "spotify.remove_from_playlist"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyRemoveFromPlaylistAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "spotify.start_playlist"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyStartPlaylistAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "spotify.transfer_playback"
+            },
+            "params": {
+              "$ref": "#/$defs/SpotifyTransferPlaybackAction"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "params"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
               "const": "volume.adjust"
             },
             "params": {
@@ -770,6 +866,86 @@
         "sinkNames"
       ]
     },
+    "SpotifyAddToPlaylistAction": {
+      "properties": {
+        "playlistId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "playlistId"
+      ]
+    },
+    "SpotifyLikeToggleAction": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SpotifyQueueTrackAction": {
+      "properties": {
+        "trackId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "trackId"
+      ]
+    },
+    "SpotifyRemoveFromPlaylistAction": {
+      "properties": {
+        "playlistId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "playlistId"
+      ]
+    },
+    "SpotifySettings": {
+      "properties": {
+        "clientId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "clientId"
+      ]
+    },
+    "SpotifyStartPlaylistAction": {
+      "properties": {
+        "playlistId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "playlistId"
+      ]
+    },
+    "SpotifyTransferPlaybackAction": {
+      "properties": {
+        "deviceName": {
+          "type": "string"
+        },
+        "play": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceName"
+      ]
+    },
     "Target": {
       "properties": {
         "kind": {
@@ -910,6 +1086,9 @@
     },
     "media": {
       "$ref": "#/$defs/MediaSettings"
+    },
+    "spotify": {
+      "$ref": "#/$defs/SpotifySettings"
     }
   },
   "additionalProperties": false,
@@ -921,7 +1100,8 @@
     "appMatchers",
     "appGroups",
     "scenes",
-    "media"
+    "media",
+    "spotify"
   ],
   "title": "Config",
   "description": "knobd's on-disk configuration (~/.config/knobd/config.json). See daemon/internal/model.Config."

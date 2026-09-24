@@ -25,6 +25,7 @@ var currentSchemaVersion = model.CurrentSchemaVersion
 // opened by a newer knobd in a long time.
 var migrations = []func(map[string]any) (map[string]any, error){
 	migrateV1toV2,
+	migrateV2toV3,
 }
 
 // migrateV1toV2 adds Config.Media (M09), absent from every v1 document,
@@ -34,6 +35,19 @@ func migrateV1toV2(doc map[string]any) (map[string]any, error) {
 	if _, ok := doc["media"]; !ok {
 		doc["media"] = map[string]any{
 			"ignorePlayers": []any{},
+		}
+	}
+	return doc, nil
+}
+
+// migrateV2toV3 adds Config.Spotify (M10), absent from every v2
+// document, defaulting ClientID to empty -- Spotify actions report
+// "not configured" until the user enters a Client ID via the Spotify
+// tab.
+func migrateV2toV3(doc map[string]any) (map[string]any, error) {
+	if _, ok := doc["spotify"]; !ok {
+		doc["spotify"] = map[string]any{
+			"clientId": "",
 		}
 	}
 	return doc, nil

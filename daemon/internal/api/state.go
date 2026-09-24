@@ -26,6 +26,9 @@ type State struct {
 	// Media is MPRIS player discovery/selection status -- see
 	// media.Tracker (M09).
 	Media MediaState `json:"media"`
+	// Spotify is the Spotify Web API OAuth connection's status -- see
+	// spotify.Service (M10).
+	Spotify SpotifyState `json:"spotify"`
 
 	// Controls lists only controls that currently do something -- one
 	// bound on the active layer (falling back to layer 0, same as
@@ -108,6 +111,31 @@ type MediaPlayer struct {
 	// even though such a player never appears as Selected, so the Media
 	// tab can offer to un-ignore it.
 	Ignored bool `json:"ignored"`
+}
+
+// SpotifyState reports the Spotify Web API OAuth connection's status --
+// mirrors MediaState/FocusState's Available-gated shape: the
+// spotify.* actions don't resolve while Authorized is false, and this
+// is how the UI's Spotify tab explains why and offers a Connect button.
+type SpotifyState struct {
+	// Configured is true once Config.Spotify.ClientID is non-empty.
+	Configured bool `json:"configured"`
+	// Authorized is true once a refresh token is stored and was last
+	// confirmed good.
+	Authorized bool `json:"authorized"`
+	// LoginInProgress is true between POST /spotify/login returning and
+	// its loopback callback completing.
+	LoginInProgress bool `json:"loginInProgress"`
+	// LoginURL is the in-progress login's authorize URL, for the UI's
+	// copyable fallback if the daemon's best-effort browser-open didn't
+	// work. Empty unless LoginInProgress.
+	LoginURL string `json:"loginUrl,omitempty"`
+	// User is the authorized account's display name, empty until
+	// confirmed.
+	User string `json:"user,omitempty"`
+	// LastError is the most recent login/refresh/validation failure's
+	// message, empty if there is none to report.
+	LastError string `json:"lastError,omitempty"`
 }
 
 // ResolvedTarget is what a ControlState's Target resolves to right now.

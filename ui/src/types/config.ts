@@ -79,6 +79,30 @@ export type Action =
       params: SinkCycleDefaultAction;
     }
   | {
+      type: "spotify.add_to_playlist";
+      params: SpotifyAddToPlaylistAction;
+    }
+  | {
+      type: "spotify.like_toggle";
+      params: SpotifyLikeToggleAction;
+    }
+  | {
+      type: "spotify.queue_track";
+      params: SpotifyQueueTrackAction;
+    }
+  | {
+      type: "spotify.remove_from_playlist";
+      params: SpotifyRemoveFromPlaylistAction;
+    }
+  | {
+      type: "spotify.start_playlist";
+      params: SpotifyStartPlaylistAction;
+    }
+  | {
+      type: "spotify.transfer_playback";
+      params: SpotifyTransferPlaybackAction;
+    }
+  | {
       type: "volume.adjust";
       params: VolumeAdjustAction;
     }
@@ -110,6 +134,7 @@ export interface Config {
   appGroups: AppGroup[];
   scenes: Scene[];
   media: MediaSettings;
+  spotify: SpotifySettings;
 }
 export interface Profile {
   id: string;
@@ -177,6 +202,23 @@ export interface ShellRunAction {
 export interface SinkCycleDefaultAction {
   sinkNames: string[];
 }
+export interface SpotifyAddToPlaylistAction {
+  playlistId: string;
+}
+export interface SpotifyLikeToggleAction {}
+export interface SpotifyQueueTrackAction {
+  trackId: string;
+}
+export interface SpotifyRemoveFromPlaylistAction {
+  playlistId: string;
+}
+export interface SpotifyStartPlaylistAction {
+  playlistId: string;
+}
+export interface SpotifyTransferPlaybackAction {
+  deviceName: string;
+  play?: boolean;
+}
 export interface VolumeAdjustAction {
   target: Target;
   stepPercent: number;
@@ -224,4 +266,7 @@ export interface SceneEntry {
 }
 export interface MediaSettings {
   ignorePlayers: string[];
+}
+export interface SpotifySettings {
+  clientId: string;
 }

@@ -17,6 +17,8 @@ func TestActionRegistryComplete(t *testing.T) {
 		ActionLayerMomentary, ActionLayerLatch, ActionLayerCycle,
 		ActionKnobAssignFocusedApp, ActionKnobClear, ActionKnobLockToggle,
 		ActionMediaTransport, ActionMediaSeek, ActionMediaTargetCycle, ActionMediaNowPlaying,
+		ActionSpotifyLikeToggle, ActionSpotifyAddToPlaylist, ActionSpotifyRemoveFromPlaylist,
+		ActionSpotifyStartPlaylist, ActionSpotifyQueueTrack, ActionSpotifyTransferPlayback,
 		ActionSinkCycleDefault, ActionMicPushToTalk, ActionMicPushToMute, ActionShellRun,
 	}
 	for _, at := range allTypes {

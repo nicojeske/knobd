@@ -31,6 +31,7 @@ import (
 	"github.com/njeske/knobd/internal/media"
 	"github.com/njeske/knobd/internal/midi"
 	"github.com/njeske/knobd/internal/model"
+	"github.com/njeske/knobd/internal/spotify"
 )
 
 func main() {
@@ -170,21 +171,27 @@ func runDaemon(args []string) error {
 	// The session bus connection is dialed here, once, rather than
 	// inside media.New itself, so the same connection can also back
 	// mediaNotifier (org.freedesktop.Notifications lives on the same
-	// bus) without media.Backend needing to expose its *dbus.Conn.
+	// bus) without media.Backend needing to expose its *dbus.Conn --
+	// and, as of M10, also back spotify.NewSecretService (the Secret
+	// Service API lives on the session bus too), via the sessionConn
+	// var hoisted out of this if/else so it survives past this block.
+	var sessionConn *dbus.Conn
 	mediaBackend := media.Unavailable()
 	mediaNotifier := media.UnavailableNotifier()
 	mediaAvailable := false
 	if conn, cerr := dbus.ConnectSessionBus(); cerr != nil {
-		logger.Warn("media transport unavailable; media.* actions will not resolve", "err", cerr)
-	} else if b, merr := media.New(ctx, media.Options{Logger: logger, Conn: conn}); merr != nil {
-		logger.Warn("media transport unavailable; media.* actions will not resolve", "err", merr)
-		conn.Close()
+		logger.Warn("session bus unavailable; media.*/spotify.* actions will not resolve", "err", cerr)
 	} else {
-		mediaBackend = b
-		mediaNotifier = media.NewNotifier(conn)
-		mediaAvailable = true
+		sessionConn = conn
 		defer conn.Close()
-		defer b.Close()
+		if b, merr := media.New(ctx, media.Options{Logger: logger, Conn: conn}); merr != nil {
+			logger.Warn("media transport unavailable; media.* actions will not resolve", "err", merr)
+		} else {
+			mediaBackend = b
+			mediaNotifier = media.NewNotifier(conn)
+			mediaAvailable = true
+			defer b.Close()
+		}
 	}
 	mediaTrk, terr := media.NewTracker(ctx, mediaBackend, media.TrackerOptions{
 		Logger: logger,
@@ -254,6 +261,40 @@ func runDaemon(args []string) error {
 		Logger:        logger,
 		IgnorePlayers: ignorePlayers,
 	})
+
+	// spotify.Service is best-effort in the same way media.New is: no
+	// session bus (or, later, a missing Client ID) must never turn into
+	// a knobd startup failure -- see the comment above the media block.
+	// It shares sessionConn with media/mediaNotifier rather than dialing
+	// its own connection (org.freedesktop.secrets and
+	// org.freedesktop.Notifications both live on the session bus too).
+	spotifyClientID := func() string { return store.Config().Spotify.ClientID }
+	spotifySecrets := spotify.UnavailableSecretStore()
+	if sessionConn != nil {
+		if ss, serr := spotify.NewSecretService(sessionConn); serr != nil {
+			logger.Warn("spotify secret storage unavailable; spotify.* actions will not resolve", "err", serr)
+		} else {
+			spotifySecrets = ss
+		}
+	}
+	spotifySvc := spotify.NewService(spotifyClientID, spotifySecrets, spotify.ServiceOptions{
+		Logger: logger,
+		OnChange: func() {
+			if hub != nil {
+				hub.NotifyStateDirty()
+			}
+		},
+	})
+	// Checks, off the startup path, whether a refresh token already
+	// stored under the current Client ID is still good -- so a daemon
+	// restart doesn't show "Connect" while a perfectly good token is
+	// sitting in the Secret Service.
+	spotifySvc.ValidateStoredToken(ctx)
+	// Reuses mediaNotifier (org.freedesktop.Notifications, same session
+	// bus) for like_toggle/add_to_playlist/remove_from_playlist's result
+	// notifications -- no reason for a second Notifier implementation.
+	spotifyHandlers := actions.NewSpotifyHandlers(spotifySvc.Client(), mediaNotifier, actions.SpotifyOptions{Logger: logger})
+
 	// Must run before the eng.Run goroutine below starts: Registry's map
 	// isn't safe to mutate concurrently with Execute, and every handler
 	// in this codebase is registered once at startup for that reason
@@ -263,6 +304,7 @@ func runDaemon(args []string) error {
 	sceneHandlers.Register(registry)
 	mixHandlers.Register(registry)
 	mediaHandlers.Register(registry)
+	spotifyHandlers.Register(registry)
 
 	status := &connStatus{}
 	state := &daemonState{
@@ -272,6 +314,7 @@ func runDaemon(args []string) error {
 		media:          mediaTrk,
 		mediaAvailable: mediaAvailable,
 		mediaIgnore:    ignorePlayers,
+		spotify:        spotifySvc,
 	}
 	// hub was forward-declared above so eng.Deps.OnStateChanged/OnInput
 	// could close over it; assign it now that state (its StateProvider)
@@ -290,12 +333,14 @@ func runDaemon(args []string) error {
 	audioGraph := newAudioGraph(audioSup, store)
 	capabilities := newCapabilitiesProvider(registry)
 	learnCtl := newLearnController(eng)
+	spotifyProv := newSpotifyProvider(spotifySvc, logger)
 	srv := api.New(api.Options{
 		Config:       store,
 		State:        state,
 		Audio:        audioGraph,
 		Capabilities: capabilities,
 		Learn:        learnCtl,
+		Spotify:      spotifyProv,
 		Events:       hub,
 		Logger:       logger,
 	})
@@ -328,6 +373,11 @@ func runDaemon(args []string) error {
 	go func() { exits <- exit{"engine", eng.Run(runCtx)} }()
 	go func() { exits <- exit{"api", srv.ListenAndServe(runCtx, sock)} }()
 	go func() { exits <- exit{"events", hub.Run(runCtx)} }()
+	// spotifyHandlers.Run never returns an error worth racing the other
+	// four goroutines over (see its own doc comment) -- it just stops
+	// when runCtx is canceled, so it's started here but left out of the
+	// exits race.
+	go spotifyHandlers.Run(runCtx)
 	go func() {
 		watchConnections(runCtx, midiSup, audioSup, status, eng, hub.NotifyStateDirty, logger)
 		exits <- exit{"connections", nil}

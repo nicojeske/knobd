@@ -12,6 +12,7 @@ import (
 	"github.com/njeske/knobd/internal/engine"
 	"github.com/njeske/knobd/internal/media"
 	"github.com/njeske/knobd/internal/midi"
+	"github.com/njeske/knobd/internal/spotify"
 )
 
 // connStatus is the mutex-guarded MIDI/audio connection status
@@ -140,6 +141,12 @@ type mediaTracker interface {
 	Snapshot(ignore []string) (players []media.PlayerInfo, selected string)
 }
 
+// spotifyStatus is the slice of *spotify.Service daemonState needs --
+// point-of-use, matching mediaTracker's own pattern in this package.
+type spotifyStatus interface {
+	Status() spotify.Status
+}
+
 // daemonState is cmd/knobd's api.StateProvider adapter.
 type daemonState struct {
 	eng            *engine.Engine
@@ -151,6 +158,8 @@ type daemonState struct {
 	// mediaIgnore reads Config.Media.IgnorePlayers fresh on every State
 	// call, mirroring actions.MediaOptions.IgnorePlayers.
 	mediaIgnore func() []string
+
+	spotify spotifyStatus
 }
 
 // State implements api.StateProvider.
@@ -161,7 +170,26 @@ func (d *daemonState) State(ctx context.Context) (api.State, error) {
 	}
 	device, audioState := d.status.snapshot()
 	mediaState := mediaStateOf(d.media, d.mediaAvailable, d.mediaIgnore)
-	return snapshotToState(snap, device, audioState, d.focusAvailable, mediaState, time.Now()), nil
+	spotifyState := spotifyStateOf(d.spotify)
+	state := snapshotToState(snap, device, audioState, d.focusAvailable, mediaState, time.Now())
+	state.Spotify = spotifyState
+	return state, nil
+}
+
+// spotifyStateOf builds api.SpotifyState from svc's status.
+func spotifyStateOf(svc spotifyStatus) api.SpotifyState {
+	if svc == nil {
+		return api.SpotifyState{}
+	}
+	status := svc.Status()
+	return api.SpotifyState{
+		Configured:      status.Configured,
+		Authorized:      status.Authorized,
+		LoginInProgress: status.LoginInProgress,
+		LoginURL:        status.LoginURL,
+		User:            status.User,
+		LastError:       status.LastError,
+	}
 }
 
 // mediaStateOf builds api.MediaState from tracker's snapshot, listing

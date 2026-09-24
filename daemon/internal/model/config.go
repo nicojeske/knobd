@@ -10,19 +10,21 @@ import (
 // daemon/internal/config (see specs/milestones/M01-foundations.md).
 //
 // v1 -> v2 (M09): added Config.Media (see MediaSettings).
-const CurrentSchemaVersion = 2
+// v2 -> v3 (M10): added Config.Spotify (see SpotifySettings).
+const CurrentSchemaVersion = 3
 
 // Config is the full on-disk shape of ~/.config/knobd/config.json. It is
 // loaded/saved/migrated by daemon/internal/config; model only defines
 // the shape and cross-referential validation.
 type Config struct {
-	SchemaVersion   int           `json:"schemaVersion"`
-	ActiveProfileID string        `json:"activeProfileId"`
-	Profiles        []Profile     `json:"profiles"`
-	AppMatchers     []AppMatcher  `json:"appMatchers"`
-	AppGroups       []AppGroup    `json:"appGroups"`
-	Scenes          []Scene       `json:"scenes"`
-	Media           MediaSettings `json:"media"`
+	SchemaVersion   int             `json:"schemaVersion"`
+	ActiveProfileID string          `json:"activeProfileId"`
+	Profiles        []Profile       `json:"profiles"`
+	AppMatchers     []AppMatcher    `json:"appMatchers"`
+	AppGroups       []AppGroup      `json:"appGroups"`
+	Scenes          []Scene         `json:"scenes"`
+	Media           MediaSettings   `json:"media"`
+	Spotify         SpotifySettings `json:"spotify"`
 }
 
 // MediaSettings configures daemon/internal/media's MPRIS player
@@ -35,6 +37,16 @@ type MediaSettings struct {
 	// both under its own bus name and under
 	// org.mpris.MediaPlayer2.plasma-browser-integration).
 	IgnorePlayers []string `json:"ignorePlayers"`
+}
+
+// SpotifySettings configures daemon/internal/spotify's OAuth PKCE flow.
+// See specs/milestones/M10-spotify-web-api.md.
+type SpotifySettings struct {
+	// ClientID is the Spotify Developer application's Client ID. It is
+	// not a secret under PKCE (there is no client secret) and is safe
+	// to keep in config.json; the refresh token that *is* sensitive is
+	// stored separately via the Secret Service D-Bus API, never here.
+	ClientID string `json:"clientId"`
 }
 
 // Profile is a named, independently selectable set of bindings, e.g.

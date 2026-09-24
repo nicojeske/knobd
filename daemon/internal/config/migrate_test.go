@@ -106,13 +106,14 @@ func TestMigrateAppliesRegisteredSteps(t *testing.T) {
 	restoreVersion, restoreMigrations := currentSchemaVersion, migrations
 	t.Cleanup(func() { currentSchemaVersion, migrations = restoreVersion, restoreMigrations })
 
-	// Raise one past the real current version (2, as of M09) so this
-	// proves the loop reaches a synthetic step 2 (index 1) beyond the
-	// real v1->v2 step already registered, and threads its result
-	// through, without depending on that real step's own behavior.
-	currentSchemaVersion = 3
-	migrations = append(migrations[:1:1], func(doc map[string]any) (map[string]any, error) {
-		doc["migratedFrom2To3"] = true
+	// Raise one past the real current version (3, as of M10) so this
+	// proves the loop reaches a synthetic step 3 (index 2) beyond the
+	// real v1->v2/v2->v3 steps already registered, and threads its
+	// result through, without depending on those real steps' own
+	// behavior.
+	currentSchemaVersion = 4
+	migrations = append(migrations[:2:2], func(doc map[string]any) (map[string]any, error) {
+		doc["migratedFrom3To4"] = true
 		return doc, nil
 	})
 
@@ -121,10 +122,10 @@ func TestMigrateAppliesRegisteredSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if got["schemaVersion"] != 3 {
-		t.Errorf("schemaVersion = %v, want 3", got["schemaVersion"])
+	if got["schemaVersion"] != 4 {
+		t.Errorf("schemaVersion = %v, want 4", got["schemaVersion"])
 	}
-	if got["migratedFrom2To3"] != true {
+	if got["migratedFrom3To4"] != true {
 		t.Error("Migrate did not apply the registered step")
 	}
 }
@@ -154,6 +155,31 @@ func TestMigrateV1ToV2AddsMediaSettings(t *testing.T) {
 	}
 }
 
+// TestMigrateV2ToV3AddsSpotifySettings exercises the real (not
+// synthetic) v2->v3 step: a v2 document has no "spotify" key at all, and
+// Migrate must add one with an empty ClientID so it decodes into a
+// valid model.Config.
+func TestMigrateV2ToV3AddsSpotifySettings(t *testing.T) {
+	doc := defaultDoc(t)
+	doc["schemaVersion"] = 2.0
+	delete(doc, "spotify")
+
+	got, err := Migrate(doc)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	cfg := decodeOrFatal(t, got)
+	if cfg.SchemaVersion != model.CurrentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", cfg.SchemaVersion, model.CurrentSchemaVersion)
+	}
+	if cfg.Spotify.ClientID != "" {
+		t.Errorf("Spotify.ClientID = %q, want empty", cfg.Spotify.ClientID)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("migrated config does not validate: %v", err)
+	}
+}
+
 // TestMigrateNoPathReturnsError exercises the branch that was
 // unreachable before this rework (model.CurrentSchemaVersion was always
 // 1, so version was never less than it and no path could ever be
@@ -162,8 +188,8 @@ func TestMigrateNoPathReturnsError(t *testing.T) {
 	restoreVersion, restoreMigrations := currentSchemaVersion, migrations
 	t.Cleanup(func() { currentSchemaVersion, migrations = restoreVersion, restoreMigrations })
 
-	currentSchemaVersion = 3
-	migrations = nil // no step registered to reach version 3
+	currentSchemaVersion = 4
+	migrations = nil // no step registered to reach version 4
 
 	doc := defaultDoc(t)
 	if _, err := Migrate(doc); err == nil {

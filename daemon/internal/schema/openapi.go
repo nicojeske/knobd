@@ -17,14 +17,17 @@ import (
 // as schema_test.go's forgotten-field check, applied to the API surface
 // instead of the config schema.
 var componentTypes = map[string]any{
-	"Config":        Config{},
-	"State":         api.State{},
-	"AudioGraph":    api.AudioGraph{},
-	"Capabilities":  api.Capabilities{},
-	"LearnRequest":  api.LearnRequest{},
-	"LearnState":    api.LearnState{},
-	"Event":         api.Event{},
-	"ErrorResponse": api.ErrorResponse{},
+	"Config":               Config{},
+	"State":                api.State{},
+	"AudioGraph":           api.AudioGraph{},
+	"Capabilities":         api.Capabilities{},
+	"LearnRequest":         api.LearnRequest{},
+	"LearnState":           api.LearnState{},
+	"Event":                api.Event{},
+	"ErrorResponse":        api.ErrorResponse{},
+	"SpotifyLoginResponse": api.SpotifyLoginResponse{},
+	"SpotifyPlaylistList":  api.SpotifyPlaylistList{},
+	"SpotifyDeviceList":    api.SpotifyDeviceList{},
 }
 
 // document/info/pathItem/etc. are a small local OpenAPI 3.1 document
