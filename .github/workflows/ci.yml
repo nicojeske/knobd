@@ -30,6 +30,10 @@ jobs:
         run: |
           make schema
           git diff --exit-code -- docs/config.schema.json docs/openapi.json docs/device-layout.json
+      - name: codemap up to date
+        run: |
+          make codemap
+          git diff --exit-code -- docs/codemap.md
 
   ui:
     name: ui (TypeScript)

@@ -1,4 +1,4 @@
-.PHONY: build release check-static test vet lint fmt fmt-check schema run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons ui-codegen ui-test ui-lint ui-build
+.PHONY: build release check-static test vet lint fmt fmt-check schema codemap run monitor monitor-audio calibrate-leds install-user uninstall-user clean ui-install ui-dev ui-icons ui-codegen ui-test ui-lint ui-build
 
 DAEMON_DIR := daemon
 BIN := $(DAEMON_DIR)/knobd
@@ -51,6 +51,9 @@ schema: ## Regenerate docs/{config.schema,openapi,device-layout}.json (see daemo
 	cd $(DAEMON_DIR) && go run ./cmd/schemagen -kind config -o ../docs/config.schema.json
 	cd $(DAEMON_DIR) && go run ./cmd/schemagen -kind openapi -o ../docs/openapi.json
 	cd $(DAEMON_DIR) && go run ./cmd/schemagen -kind device-layout -o ../docs/device-layout.json
+
+codemap: ## Regenerate docs/codemap.md, a signature index of every daemon package (see daemon/cmd/codemap)
+	cd $(DAEMON_DIR) && go run ./cmd/codemap -root . -o ../docs/codemap.md
 
 run: build ## Run the daemon in the foreground with debug logging
 	./$(BIN) --log-level debug
