@@ -1,7 +1,10 @@
 package main
 
 import (
+	"sort"
+
 	"github.com/njeske/knobd/internal/api"
+	"github.com/njeske/knobd/internal/engine"
 	"github.com/njeske/knobd/internal/model"
 )
 
@@ -23,13 +26,31 @@ func newCapabilitiesProvider(registry registryActionTypes) *capabilitiesProvider
 
 // Capabilities implements api.CapabilitiesProvider.
 //
-// SupportedTargetKinds excludes model.TargetGroup: engine/resolver.go's
-// TargetGroup case is a stub that always errors until M08 does group
-// resolution (see daemon/internal/engine/errors.go). Every other
-// model.TargetKinds() entry resolves today. Features.Layers and
-// Features.Scenes are also M08's; Features.Learn is true now that
-// POST/DELETE /learn are wired up (see cmd/knobd/learn.go).
+// ImplementedActions merges the registry's own set with
+// engine.InlineActionTypes(): the three layer.* actions never go
+// through actions.Registry (engine.dispatchGesture executes them
+// itself, since they mutate state only its own run goroutine owns), but
+// a client asking "what can a binding do" has no reason to care which
+// of the two mechanisms answers it. Features.Scenes is still M08's
+// (scene.apply/scene.save aren't registered yet); Features.Learn is
+// true now that POST/DELETE /learn are wired up (see
+// cmd/knobd/learn.go).
 func (c *capabilitiesProvider) Capabilities() api.Capabilities {
+	actionSet := make(map[model.ActionType]bool)
+	for _, t := range c.registry.ActionTypes() {
+		actionSet[t] = true
+	}
+	for _, t := range engine.InlineActionTypes() {
+		actionSet[t] = true
+	}
+	actionTypes := make([]model.ActionType, 0, len(actionSet))
+	for t := range actionSet {
+		actionTypes = append(actionTypes, t)
+	}
+	sort.Slice(actionTypes, func(i, j int) bool { return actionTypes[i] < actionTypes[j] })
+
+	// TargetGroup is excluded until group resolution lands (see
+	// engine/resolver.go's TargetGroup case).
 	var targetKinds []model.TargetKind
 	for _, k := range model.TargetKinds() {
 		if k == model.TargetGroup {
@@ -39,10 +60,10 @@ func (c *capabilitiesProvider) Capabilities() api.Capabilities {
 	}
 
 	return api.Capabilities{
-		ImplementedActions:   c.registry.ActionTypes(),
+		ImplementedActions:   actionTypes,
 		SupportedTargetKinds: targetKinds,
 		Features: api.Features{
-			Layers: false,
+			Layers: true,
 			Scenes: false,
 			Learn:  true,
 		},

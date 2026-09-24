@@ -121,3 +121,36 @@ func TestBindingIndexInvalidBindingSkipped(t *testing.T) {
 		t.Error("expected the invalid binding to be skipped, not indexed")
 	}
 }
+
+func TestBindingIndexMaxLayer(t *testing.T) {
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn, Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSink}, StepPercent: 1}},
+				{Layer: 3, Control: enc1, Gesture: model.GestureTurn, Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSource}, StepPercent: 1}},
+			},
+		}},
+	}
+	ix := newBindingIndex(cfg, discardLogger())
+	if ix.maxLayer != 3 {
+		t.Errorf("maxLayer = %d, want 3", ix.maxLayer)
+	}
+}
+
+func TestBindingIndexMaxLayerDefaultsToZero(t *testing.T) {
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn, Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSink}, StepPercent: 1}},
+			},
+		}},
+	}
+	ix := newBindingIndex(cfg, discardLogger())
+	if ix.maxLayer != 0 {
+		t.Errorf("maxLayer = %d, want 0", ix.maxLayer)
+	}
+}

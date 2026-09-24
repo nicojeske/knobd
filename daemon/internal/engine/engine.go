@@ -237,10 +237,24 @@ func (e *Engine) Run(ctx context.Context) error {
 	cfg := e.deps.Config
 
 	bindings := newBindingIndex(cfg, e.log)
+	// activeProfileID tracks which profile layerState belongs to: a
+	// layer switch is a live-session concern, not config, so an
+	// unrelated config edit (SetConfig with the same active profile)
+	// must never snap the user back to layer 0 -- only actually
+	// switching profiles does (see the configCh case below).
+	activeProfileID := cfg.ActiveProfileID
 	gestures := newGestureMachine(HoldThreshold, DoublePressWindow, bindings.deferPress)
 	res := newResolver(proctree.Walker{Root: e.deps.ProcRoot}, e.log)
 	res.setConfig(cfg)
-	layer := 0
+	layers := &layerState{}
+	// downLayer pins the layer a control's press/hold/release/
+	// double_press gesture resolves against to whatever was active when
+	// the control physically went down (see the EventButtonDown case
+	// below and dispatchGesture), independent of any layer switch that
+	// happens while it's still held. Turn/move gestures have no "down"
+	// of their own and always resolve against whatever's active right
+	// now instead.
+	downLayer := make(map[model.Control]int)
 	// learnUntil is the zero time.Time when learn mode is disarmed, or
 	// the deadline it's armed until -- see learn.go's SetLearnUntil and
 	// the msgs/timerC cases below for how it's read and cleared.
@@ -323,7 +337,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	leds := newLEDState()
 	ledTimer := e.clk.NewTimer(time.Hour)
 	ledTimer.Stop()
-	e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+	e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 
 	var lastDecodeLog time.Time
 	var decodeLogSuppressed int
@@ -404,7 +418,7 @@ func (e *Engine) Run(ctx context.Context) error {
 					// this event dispatch normally, below.
 					learnUntil = time.Time{}
 					gestures.Reset()
-					e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+					e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 				} else {
 					// Learn is armed: every event is suppressed from
 					// dispatch unconditionally. Only a turn, a fader move,
@@ -425,28 +439,59 @@ func (e *Engine) Run(ctx context.Context) error {
 						// own deadline (the timerC arm above).
 						learnUntil = time.Time{}
 						gestures.Reset()
-						e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+						e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 					}
 					continue
 				}
 			}
 
+			// Pin the layer this control's press/hold/release/
+			// double_press gesture(s) will resolve against to whatever's
+			// active right now, before a momentary switch below (if any)
+			// changes it -- see downLayer's doc comment above and
+			// dispatchGesture. Set unconditionally on every down, even
+			// for a control with no such binding, since there's no
+			// cheaper way to know in advance which controls will need it,
+			// and an unused entry is just as harmless as one gestures.Handle
+			// never turns into a dispatched gesture at all.
+			if ev.Kind == device.EventButtonDown {
+				downLayer[ev.Control] = layers.active()
+				// A momentary layer switch takes effect on the raw
+				// button-down, not the eventual GestureHold 600ms later
+				// (see HoldThreshold) -- "hold the side button, turn a
+				// knob on the new layer" must work immediately.
+				if a, ok := bindings.lookup(layers.active(), ev.Control, model.GestureHold); ok {
+					if lm, ok := a.(model.LayerMomentaryAction); ok {
+						layers.pushMomentary(ev.Control, lm.Layer)
+						e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
+					}
+				}
+			} else if ev.Kind == device.EventButtonUp {
+				// Unconditional and harmless if ev.Control was never
+				// pushed: popMomentary is a no-op search-and-remove.
+				before := layers.active()
+				layers.popMomentary(ev.Control)
+				if layers.active() != before {
+					e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
+				}
+			}
+
 			for _, g := range gestures.Handle(ev) {
-				e.dispatchGesture(bindings, res, layer, g, dispatchCh)
+				e.dispatchGesture(ctx, cfg, bindings, res, layers, downLayer, g, dispatchCh, leds)
 			}
 
 		case now := <-timerC:
 			for _, g := range gestures.Tick(now) {
-				e.dispatchGesture(bindings, res, layer, g, dispatchCh)
+				e.dispatchGesture(ctx, cfg, bindings, res, layers, downLayer, g, dispatchCh, leds)
 			}
 			if !learnUntil.IsZero() && !now.Before(learnUntil) {
 				learnUntil = time.Time{}
 				gestures.Reset()
-				e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+				e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 			}
 
 		case <-ledTimerC:
-			e.flushLEDs(ctx, cfg, bindings, res, layer, leds)
+			e.flushLEDs(ctx, cfg, bindings, res, layers.active(), leds)
 
 		case ev, open := <-events:
 			if !open {
@@ -456,7 +501,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				return errAudioSubscriptionClosed
 			}
 			e.handleAudioEvent(ev, res, dispatchCh)
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 
 		case info, open := <-focusEvents:
 			if !open {
@@ -478,41 +523,53 @@ func (e *Engine) Run(ctx context.Context) error {
 			// An encoder bound to TargetFocused must have its ring
 			// follow the newly-focused app; nothing else in this loop
 			// would repaint it on a focus change alone.
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 
 		case sr := <-streamsCh:
 			res.setSinks(sr.sinks)
 			res.setSources(sr.sources)
 			res.setStreams(sr.streams)
-			if refs := deviceRefsBoundToTargets(bindings, res, layer); len(refs) > 0 {
+			if refs := deviceRefsBoundToTargets(bindings, res, layers.active()); len(refs) > 0 {
 				e.enqueueDispatch(dispatchCh, work{refreshRefs: refs}, "device level refresh")
 			}
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 
 		case req := <-e.configCh:
 			cfg = req.cfg
 			bindings = newBindingIndex(cfg, e.log)
 			gestures.deferPress = bindings.deferPress
 			res.setConfig(cfg)
+			// A layer switch is a live-session concern, not config (see
+			// layerState's doc comment) -- an unrelated edit to the same
+			// active profile must not snap the user back to layer 0. Only
+			// actually switching the active profile resets it, since the
+			// new profile's layers mean something different. Any
+			// in-progress momentary hold is dropped either way: the
+			// bindings it referenced may no longer exist.
+			if cfg.ActiveProfileID != activeProfileID {
+				layers.latched = 0
+				activeProfileID = cfg.ActiveProfileID
+			}
+			layers.held = nil
 			// The set of bound controls may have changed; forget every
 			// last-pushed LED value rather than diffing against a
 			// binding index that no longer applies.
 			leds.reset()
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 			select {
 			case req.reply <- nil:
 			default:
 			}
 
 		case reply := <-e.snapshotCh:
-			reply <- e.buildSnapshot(cfg, bindings, res, layer, learnUntil)
+			reply <- e.buildSnapshot(cfg, bindings, res, layers.active(), learnUntil)
 
 		case <-e.ledCh:
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 
 		case reply := <-e.repaintCh:
 			leds.reset()
-			e.flushLEDs(ctx, cfg, bindings, res, layer, leds)
+			e.flushLEDs(ctx, cfg, bindings, res, layers.active(), leds)
 			select {
 			case reply <- struct{}{}:
 			default:
@@ -523,7 +580,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				updates: map[model.Control]device.LEDUpdate{req.control: flashUpdate(req.control)},
 				until:   e.clk.Now().Add(req.duration),
 			}
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 
 		case req := <-e.learnCh:
 			// Reset on every transition, arming or disarming: a control
@@ -535,7 +592,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			// same reasoning applies in reverse when disarming.
 			learnUntil = req.deadline
 			gestures.Reset()
-			e.markLEDsDirty(ctx, cfg, bindings, res, layer, leds)
+			e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 			select {
 			case req.reply <- nil:
 			default:
@@ -562,19 +619,89 @@ func (e *Engine) logDecodeError(err error, last *time.Time, suppressed *int) {
 	*suppressed = 0
 }
 
-// dispatchGesture looks up g's binding, resolves its target (if any),
-// and enqueues the resulting Invocation to the dispatcher. Resolution
+// holdPaired reports whether action is one whose GestureHold binding
+// must also receive the control's eventual GestureRelease, even when
+// nothing is bound to Release directly -- audio.duck_hold's whole
+// point is "restore on release" (see its doc comment), and a user
+// binding only its Hold gesture (the natural, and only sensible, way
+// to configure it) must not need a second, redundant Release binding
+// to make that work.
+func holdPaired(action model.Action) bool {
+	switch action.(type) {
+	case model.AudioDuckHoldAction:
+		return true
+	default:
+		return false
+	}
+}
+
+// dispatchGesture looks up g's binding -- against the layer pinned at
+// the control's button-down for a press/hold/release/double_press
+// gesture (see downLayer's doc comment in Run), or whatever's active
+// right now for a turn/move, which has no "down" of its own -- and
+// either executes it inline (the three layer.* actions, which mutate
+// layers, state Run's goroutine alone owns) or resolves its target and
+// enqueues the resulting Invocation to the dispatcher. Resolution
 // happens here, inline on the run goroutine, rather than in the
 // dispatcher: every target.Kind resolver.resolve handles is a pure,
 // non-blocking cache read (see resolveFocused's doc comment for what
 // changed in M06 to make that true of TargetFocused too — it no longer
 // takes a context.Context at all, for the same reason).
-func (e *Engine) dispatchGesture(bindings *bindingIndex, res *resolver, layer int, g gesture, dispatchCh chan<- work) {
+func (e *Engine) dispatchGesture(ctx context.Context, cfg model.Config, bindings *bindingIndex, res *resolver, layers *layerState, downLayer map[model.Control]int, g gesture, dispatchCh chan<- work, leds *ledState) {
+	layer := layers.active()
+	switch g.Gesture {
+	case model.GesturePress, model.GestureHold, model.GestureRelease, model.GestureDoublePress:
+		if l, ok := downLayer[g.Control]; ok {
+			layer = l
+		}
+	}
+	// A press/hold/release/double_press gesture is done needing its
+	// pinned layer once it produces its terminal outcome -- everything
+	// except GestureHold, which a GestureRelease may still follow.
+	defer func() {
+		switch g.Gesture {
+		case model.GesturePress, model.GestureDoublePress, model.GestureRelease:
+			delete(downLayer, g.Control)
+		}
+	}()
+
 	action, ok := bindings.lookup(layer, g.Control, g.Gesture)
+	if !ok && g.Gesture == model.GestureRelease {
+		// See holdPaired: a Release with no binding of its own still
+		// fires if the same control's Hold binding wants one.
+		if holdAction, holdOK := bindings.lookup(layer, g.Control, model.GestureHold); holdOK && holdPaired(holdAction) {
+			action, ok = holdAction, true
+		}
+	}
 	if !ok {
 		return
 	}
 
+	switch a := action.(type) {
+	case model.LayerMomentaryAction:
+		// Momentary switching happens at the raw-event level (see Run's
+		// EventButtonDown/Up handling) so it takes effect instantly
+		// rather than waiting for HoldThreshold. The Hold/Release
+		// gestures dispatchGesture sees for this binding are just the
+		// side button behaving like any other button as far as the
+		// gesture machine is concerned -- nothing left to do here.
+		return
+	case model.LayerLatchAction:
+		layers.latch(a.Layer)
+	case model.LayerCycleAction:
+		layers.cycle(a.LayerOrder, bindings.maxLayer)
+	default:
+		e.dispatchResolvedAction(action, g, layer, res, dispatchCh)
+		return
+	}
+	// Only the two layer-mutating cases above fall through to here.
+	e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
+}
+
+// dispatchResolvedAction resolves action's target (if it has one) and
+// enqueues the resulting Invocation, for every action type that isn't
+// handled inline by dispatchGesture.
+func (e *Engine) dispatchResolvedAction(action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work) {
 	var refs []audio.Ref
 	target, hasTarget := model.TargetOf(action)
 	if hasTarget {

@@ -196,6 +196,28 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 		}
 	}
 
+	// A control bound to a layer action lights while its own effect is
+	// currently in force -- independent of the volume/mute pass above,
+	// since layer actions carry no Target for buildSnapshot's join to
+	// key off of. Read directly from bindings rather than snap.Controls
+	// (which only carries ActionType, not the action's own Layer field).
+	for _, ab := range bindings.activeBindings(layer) {
+		var lit bool
+		switch a := ab.Action.(type) {
+		case model.LayerMomentaryAction:
+			lit = a.Layer != 0 && a.Layer == layer
+		case model.LayerLatchAction:
+			lit = a.Layer != 0 && a.Layer == layer
+		case model.LayerCycleAction:
+			lit = layer != 0
+		default:
+			continue
+		}
+		if lit {
+			desired[ab.Control] = device.LEDUpdate{Control: ab.Control, On: true}
+		}
+	}
+
 	if !leds.override.until.IsZero() && e.clk.Now().Before(leds.override.until) {
 		for c, upd := range leds.override.updates {
 			desired[c] = upd

@@ -72,5 +72,20 @@ func (b Binding) Validate() error {
 	if b.Action == nil {
 		return fmt.Errorf("model: binding has no action")
 	}
+	// layer.momentary and audio.duck_hold are both "active while held"
+	// actions (see their doc comments); the engine looks each up
+	// specifically by GestureHold (see engine.dispatchGesture and, for
+	// layer.momentary, Run's raw EventButtonDown handling), so any other
+	// gesture would silently never fire.
+	switch b.Action.(type) {
+	case LayerMomentaryAction:
+		if b.Gesture != GestureHold {
+			return fmt.Errorf("model: layer.momentary must be bound to gesture %q, not %q", GestureHold, b.Gesture)
+		}
+	case AudioDuckHoldAction:
+		if b.Gesture != GestureHold {
+			return fmt.Errorf("model: audio.duck_hold must be bound to gesture %q, not %q", GestureHold, b.Gesture)
+		}
+	}
 	return nil
 }

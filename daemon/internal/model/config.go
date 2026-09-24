@@ -197,6 +197,11 @@ func sceneRefOf(a Action) (string, bool) {
 //     unbound (a knob.assign_focused_app hold is what binds an
 //     encoder's turn, once used) -- see
 //     specs/milestones/M06-focus-tracking.md.
+//   - side button 1: hold -> layer.momentary{1}, press -> layer.latch{1}.
+//     Side button 2: the same for layer 2. This is what a freshly
+//     installed system needs to demonstrate M08's layer switching (hold
+//     for as long as needed, or tap to stick) with nothing bound to the
+//     new layers yet -- see specs/milestones/M08-layers-groups-scenes.md.
 //
 // A binding here doubles as M05's "turn a bound encoder, watch its
 // ring" and "press a mute button, watch its LED" acceptance criteria
@@ -222,6 +227,13 @@ func Default() Config {
 			Control: Control{Kind: ControlEncoderPush, Index: i}, Gesture: GestureHold,
 			Action: KnobAssignFocusedAppAction{},
 		})
+	}
+	for i, layer := range []int{1, 2} {
+		side := Control{Kind: ControlSideButton, Index: i + 1}
+		bindings = append(bindings,
+			Binding{Control: side, Gesture: GestureHold, Action: LayerMomentaryAction{Layer: layer}},
+			Binding{Control: side, Gesture: GesturePress, Action: LayerLatchAction{Layer: layer}},
+		)
 	}
 	return Config{
 		SchemaVersion:   CurrentSchemaVersion,

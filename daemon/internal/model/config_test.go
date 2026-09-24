@@ -30,8 +30,9 @@ func TestDefaultConfigStarterBindings(t *testing.T) {
 		{Control{Kind: ControlButton, Index: 2}, GesturePress, Target{Kind: TargetDefaultSource}},
 		{Control{Kind: ControlFader, Index: 1}, GestureMove, Target{Kind: TargetDefaultSink}},
 	}
-	if len(bindings) != len(want)+6 { // +6 for the encoder-push 3-8 assign bindings, below
-		t.Fatalf("Default() has %d bindings, want %d", len(bindings), len(want)+6)
+	const wantExtra = 6 + 4 // 6 encoder-push 3-8 assign bindings, 4 side-button layer bindings, both below
+	if len(bindings) != len(want)+wantExtra {
+		t.Fatalf("Default() has %d bindings, want %d", len(bindings), len(want)+wantExtra)
 	}
 	for i, w := range want {
 		b := bindings[i]
@@ -73,6 +74,28 @@ func TestDefaultConfigStarterBindings(t *testing.T) {
 		}
 		if _, ok := b.Action.(KnobAssignFocusedAppAction); !ok {
 			t.Errorf("encoder_push %d action = %T, want KnobAssignFocusedAppAction", i, b.Action)
+		}
+	}
+
+	// M08: side button 1 switches to layer 1 (hold=momentary,
+	// press=latch), side button 2 to layer 2 -- see Default's doc
+	// comment.
+	byControlGesture := make(map[Control]map[Gesture]Action)
+	for _, b := range bindings {
+		if byControlGesture[b.Control] == nil {
+			byControlGesture[b.Control] = make(map[Gesture]Action)
+		}
+		byControlGesture[b.Control][b.Gesture] = b.Action
+	}
+	for i, layer := range []int{1, 2} {
+		side := Control{Kind: ControlSideButton, Index: i + 1}
+		hold, ok := byControlGesture[side][GestureHold].(LayerMomentaryAction)
+		if !ok || hold.Layer != layer {
+			t.Errorf("side button %d hold = %+v (ok=%v), want LayerMomentaryAction{Layer: %d}", side.Index, hold, ok, layer)
+		}
+		press, ok := byControlGesture[side][GesturePress].(LayerLatchAction)
+		if !ok || press.Layer != layer {
+			t.Errorf("side button %d press = %+v (ok=%v), want LayerLatchAction{Layer: %d}", side.Index, press, ok, layer)
 		}
 	}
 }

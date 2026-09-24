@@ -86,6 +86,51 @@ func TestBindingValidate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "layer.momentary on hold is valid",
+			b: Binding{
+				Control: Control{Kind: ControlSideButton, Index: 1},
+				Gesture: GestureHold,
+				Action:  LayerMomentaryAction{Layer: 1},
+			},
+			wantErr: false,
+		},
+		{
+			name: "layer.momentary on press is invalid",
+			b: Binding{
+				Control: Control{Kind: ControlSideButton, Index: 1},
+				Gesture: GesturePress,
+				Action:  LayerMomentaryAction{Layer: 1},
+			},
+			wantErr: true,
+		},
+		{
+			name: "audio.duck_hold on hold is valid",
+			b: Binding{
+				Control: Control{Kind: ControlButton, Index: 1},
+				Gesture: GestureHold,
+				Action:  AudioDuckHoldAction{Target: Target{Kind: TargetFocused}, DuckPercent: 20},
+			},
+			wantErr: false,
+		},
+		{
+			name: "audio.duck_hold on press is invalid",
+			b: Binding{
+				Control: Control{Kind: ControlButton, Index: 1},
+				Gesture: GesturePress,
+				Action:  AudioDuckHoldAction{Target: Target{Kind: TargetFocused}, DuckPercent: 20},
+			},
+			wantErr: true,
+		},
+		{
+			name: "layer.latch on press is valid (no gesture restriction)",
+			b: Binding{
+				Control: Control{Kind: ControlSideButton, Index: 1},
+				Gesture: GesturePress,
+				Action:  LayerLatchAction{Layer: 1},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -481,6 +481,259 @@ func TestEngineRunFocusChangeUpdatesTargetFocusedRefs(t *testing.T) {
 	}
 }
 
+// TestEngineRunMomentaryLayerSwitchesOnDownAndRevertsOnRelease is M08's
+// first acceptance criterion: holding a side button switches layers for
+// as long as it's held, taking effect on the raw button-down (not
+// HoldThreshold later) and reverting the instant it's released --
+// including a gesture (the encoder turn) dispatched entirely between
+// the down and up, pinned to the layer active when the button that
+// triggered it went down (see downLayer's doc comment).
+func TestEngineRunMomentaryLayerSwitchesOnDownAndRevertsOnRelease(t *testing.T) {
+	side1 := model.Control{Kind: model.ControlSideButton, Index: 1}
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	sinkRef := audio.Ref{Kind: audio.RefSink, ID: "sink1"}
+	sourceRef := audio.Ref{Kind: audio.RefSource, ID: "source1"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: side1, Gesture: model.GestureHold, Action: model.LayerMomentaryAction{Layer: 1}},
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSink}, StepPercent: 2}},
+				{Layer: 1, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSource}, StepPercent: 2}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngine(cfg, clk)
+	backend.Seed([]audio.Device{{ID: "sink1", IsDefault: true}}, []audio.Device{{ID: "source1", IsDefault: true}}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	waitForResolved(t, e, enc1, model.GestureTurn) // layer 0's binding, resolved against the sink
+
+	// Hold side 1 down, with no release for a long while -- well short
+	// of HoldThreshold (600ms), the switch must already be in effect.
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 84, Data2: 127, Time: clk.Now()})
+
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		return err == nil && snap.ActiveLayer == 1
+	})
+
+	// The side button's own LED lights while its layer is active.
+	clk.Advance(ledFlushInterval) // release the trailing flush -- see TestEngineRunLEDRingTracksVolume
+	waitFor(t, 2*time.Second, func() bool {
+		w := buttonWrites(port, 84)
+		return len(w) > 0 && w[len(w)-1].Data2 == 127
+	})
+
+	// A turn now hits layer 1's binding (the source), not layer 0's.
+	mustInject(t, ctx, port, midi.Message{Status: 0xB0, Data1: 16, Data2: 3, Time: clk.Now()})
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sourceRef)
+		return err == nil && st.Percent == 106
+	})
+	if st, err := backend.GetVolume(context.Background(), sinkRef); err != nil || st.Percent != 100 {
+		t.Errorf("sink volume changed while layer 1 was active: %+v, %v", st, err)
+	}
+
+	// Release side 1 -- reverts to layer 0 instantly.
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 84, Data2: 0, Time: clk.Now().Add(50 * time.Millisecond)})
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		return err == nil && snap.ActiveLayer == 0
+	})
+	clk.Advance(ledFlushInterval)
+	waitFor(t, 2*time.Second, func() bool {
+		w := buttonWrites(port, 84)
+		return len(w) > 0 && w[len(w)-1].Data2 == 0
+	})
+
+	// A further turn now hits layer 0's binding (the sink) again.
+	mustInject(t, ctx, port, midi.Message{Status: 0xB0, Data1: 16, Data2: 2, Time: clk.Now()})
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sinkRef)
+		return err == nil && st.Percent == 104
+	})
+}
+
+// TestEngineRunMomentaryPinsGestureToDownTimeLayer proves the pinning
+// downLayer exists for: releasing the side button *before* the control
+// whose gesture is mid-way through (a Hold ... Release pair that spans
+// the side button's own release) must still resolve that gesture's
+// Release against the layer active when it went down, not whatever's
+// active by the time the release actually arrives.
+func TestEngineRunMomentaryPinsGestureToDownTimeLayer(t *testing.T) {
+	side1 := model.Control{Kind: model.ControlSideButton, Index: 1}
+	push1 := model.Control{Kind: model.ControlEncoderPush, Index: 1}
+	sourceRef := audio.Ref{Kind: audio.RefSource, ID: "source1"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: side1, Gesture: model.GestureHold, Action: model.LayerMomentaryAction{Layer: 1}},
+				// Layer 1's push1 hold/release drops then restores the
+				// source; nothing is bound to push1 on layer 0.
+				{Layer: 1, Control: push1, Gesture: model.GestureHold,
+					Action: model.VolumeSetAction{Target: model.Target{Kind: model.TargetDefaultSource}, Percent: 10}},
+				{Layer: 1, Control: push1, Gesture: model.GestureRelease,
+					Action: model.VolumeSetAction{Target: model.Target{Kind: model.TargetDefaultSource}, Percent: 100}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngine(cfg, clk)
+	backend.Seed(nil, []audio.Device{{ID: "source1", IsDefault: true}}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	t0 := clk.Now()
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 84, Data2: 127, Time: t0}) // side1 down
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		return err == nil && snap.ActiveLayer == 1
+	})
+
+	clk.drainResets()
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 127, Time: t0.Add(10 * time.Millisecond)}) // push1 down
+	if !clk.waitForReset(2 * time.Second) {
+		t.Fatal("timed out waiting for the hold timer to arm after push1 down")
+	}
+	clk.Advance(HoldThreshold + 20*time.Millisecond) // push1's GestureHold fires
+
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sourceRef)
+		return err == nil && st.Percent == 10
+	})
+
+	// Release side1 first -- layer reverts to 0 -- while push1 is still
+	// held.
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 84, Data2: 0, Time: t0.Add(HoldThreshold + 30*time.Millisecond)})
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		return err == nil && snap.ActiveLayer == 0
+	})
+
+	// Now release push1. Its Release must still resolve against layer 1
+	// (where its Hold binding lived, pinned at push1's own down time)
+	// and restore the source's volume -- not silently do nothing because
+	// layer 0 has no push1 binding at all.
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 0, Time: t0.Add(HoldThreshold + 40*time.Millisecond)})
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sourceRef)
+		return err == nil && st.Percent == 100
+	})
+}
+
+// TestEngineRunLatchTogglesLayer is M08's first acceptance criterion's
+// other half: a latched layer stays active until explicitly switched
+// again -- tapping the same control latches back to layer 0 (per the
+// M08 design decision to toggle, since a two-side-button unit has no
+// dedicated "back to 0" control).
+func TestEngineRunLatchTogglesLayer(t *testing.T) {
+	side1 := model.Control{Kind: model.ControlSideButton, Index: 1}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: side1, Gesture: model.GesturePress, Action: model.LayerLatchAction{Layer: 1}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, _ := newTestEngine(cfg, clk)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	tap := func(at time.Time) {
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 84, Data2: 127, Time: at})
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 84, Data2: 0, Time: at.Add(50 * time.Millisecond)})
+	}
+
+	tap(clk.Now())
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		return err == nil && snap.ActiveLayer == 1
+	})
+	clk.Advance(ledFlushInterval)
+	waitFor(t, 2*time.Second, func() bool {
+		w := buttonWrites(port, 84)
+		return len(w) > 0 && w[len(w)-1].Data2 == 127
+	})
+
+	tap(clk.Now().Add(2 * time.Second))
+	waitFor(t, 2*time.Second, func() bool {
+		snap, err := e.Snapshot(context.Background())
+		return err == nil && snap.ActiveLayer == 0
+	})
+	clk.Advance(ledFlushInterval)
+	waitFor(t, 2*time.Second, func() bool {
+		w := buttonWrites(port, 84)
+		return len(w) > 0 && w[len(w)-1].Data2 == 0
+	})
+}
+
+// TestEngineRunLayerCycleAdvancesWithNoExplicitOrder covers
+// layer.cycle's default 0..maxLayer wraparound end to end.
+func TestEngineRunLayerCycleAdvancesWithNoExplicitOrder(t *testing.T) {
+	btn1 := model.Control{Kind: model.ControlButton, Index: 1} // note 89
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: btn1, Gesture: model.GesturePress, Action: model.LayerCycleAction{}},
+				// A layer-2 binding exists purely to give maxLayer a
+				// value > 1, so cycling actually visits layer 2 too.
+				{Layer: 2, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSink}, StepPercent: 1}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, _ := newTestEngine(cfg, clk)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	press := func(at time.Time) {
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 89, Data2: 127, Time: at})
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 89, Data2: 0, Time: at.Add(50 * time.Millisecond)})
+	}
+
+	wantLayer := func(want int) {
+		t.Helper()
+		waitFor(t, 2*time.Second, func() bool {
+			snap, err := e.Snapshot(context.Background())
+			return err == nil && snap.ActiveLayer == want
+		})
+	}
+
+	press(clk.Now())
+	wantLayer(1)
+	press(clk.Now().Add(2 * time.Second))
+	wantLayer(2)
+	press(clk.Now().Add(4 * time.Second))
+	wantLayer(0) // wraps
+}
+
 func TestEngineRunAudioSubscriptionClosedIsFatal(t *testing.T) {
 	clk := newTestClock(time.Unix(0, 0))
 	e, _, backend := newTestEngine(model.Config{ActiveProfileID: "default", Profiles: []model.Profile{{ID: "default"}}}, clk)

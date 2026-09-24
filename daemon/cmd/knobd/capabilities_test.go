@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/njeske/knobd/internal/engine"
 	"github.com/njeske/knobd/internal/model"
 )
 
@@ -25,12 +26,28 @@ func TestCapabilitiesExcludesGroupTargetKind(t *testing.T) {
 	}
 }
 
+// TestCapabilitiesReflectsRegistry: ImplementedActions is the
+// registry's own set unioned with engine.InlineActionTypes() (the
+// layer.* actions engine executes itself -- see capabilitiesProvider.
+// Capabilities' doc comment), not just a passthrough of the registry.
 func TestCapabilitiesReflectsRegistry(t *testing.T) {
 	types := []model.ActionType{model.ActionVolumeAdjust, model.ActionVolumeSet, model.ActionVolumeMuteToggle}
 	c := newCapabilitiesProvider(&fakeRegistry{types: types})
 	got := c.Capabilities()
 
-	if len(got.ImplementedActions) != len(types) {
-		t.Errorf("ImplementedActions = %v, want %v", got.ImplementedActions, types)
+	want := len(types) + len(engine.InlineActionTypes())
+	if len(got.ImplementedActions) != want {
+		t.Errorf("ImplementedActions = %v, want %d entries (registry + inline)", got.ImplementedActions, want)
+	}
+	for _, t2 := range engine.InlineActionTypes() {
+		found := false
+		for _, a := range got.ImplementedActions {
+			if a == t2 {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("ImplementedActions missing inline action %q", t2)
+		}
 	}
 }

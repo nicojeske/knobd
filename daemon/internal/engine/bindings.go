@@ -16,9 +16,10 @@ type bindingKey struct {
 
 // bindingIndex is the dispatch-time view of the active profile's
 // bindings, rebuilt whenever the config changes and never mutated
-// afterward. Layer resolution — falling back to layer 0 when the active
-// layer has no binding for a (control, gesture) — is already the shape
-// M08 needs; M04 just always resolves against layer 0 (see engine.go).
+// afterward. Layer resolution falls back to layer 0 when the active
+// layer has no binding for a (control, gesture) -- layers overlay the
+// base rather than replacing it (see engine.go's dispatchGesture and
+// specs/milestones/M08-layers-groups-scenes.md's Design section).
 type bindingIndex struct {
 	byKey map[bindingKey]model.Action
 	// doubleBound records every control with a GestureDoublePress
@@ -26,6 +27,11 @@ type bindingIndex struct {
 	// defer that control's plain presses (see gestureMachine's doc
 	// comment).
 	doubleBound map[model.Control]bool
+	// maxLayer is the highest Layer any binding in this profile lives
+	// on, 0 if none do. It is LayerCycleAction's default wrap-around
+	// bound when the action carries no explicit LayerOrder (see
+	// layerState.cycle).
+	maxLayer int
 }
 
 // newBindingIndex builds an index from cfg's active profile. It never
@@ -67,6 +73,9 @@ func newBindingIndex(cfg model.Config, log *slog.Logger) *bindingIndex {
 
 		if b.Gesture == model.GestureDoublePress {
 			ix.doubleBound[b.Control] = true
+		}
+		if b.Layer > ix.maxLayer {
+			ix.maxLayer = b.Layer
 		}
 	}
 
