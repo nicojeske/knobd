@@ -11,8 +11,11 @@ code diverged from it by mistake (fix the code).
 
 ```
 reference/    Facts: the hardware protocol, the dev environment, the
-              full brainstormed action catalog. Not milestones —
-              things every milestone can cite instead of re-deriving.
+              full brainstormed action catalog, and codebase.md (data
+              flow, daemon wiring, recipes, milestone-to-package map —
+              read this plus docs/codemap.md before exploring code for
+              a milestone). Not milestones — things every milestone can
+              cite instead of re-deriving.
 adr/          Architecture Decision Records: the load-bearing decisions
               behind the daemon's structure, and why the alternatives
               were rejected.

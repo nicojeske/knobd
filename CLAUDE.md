@@ -6,6 +6,19 @@ implemented. Read the relevant milestone spec (and its `Depends on` list)
 before writing code for it, and update the spec's status/checklist as
 work completes rather than letting the spec drift from reality.
 
+## Orienting before a spec session
+
+Before exploring the code for a milestone, read `specs/README.md`,
+`specs/reference/codebase.md` (data flow, `cmd/knobd` wiring, recipes for
+the changes that come up in almost every milestone, and a milestone →
+package map), and `docs/codemap.md` (a generated signature index of every
+daemon package: interfaces, struct fields, function signatures, test
+files). Together they cover what sessions have otherwise re-derived with
+Explore agents reading whole packages from scratch each time. Only spawn
+Explore/Plan agents for what these don't answer — a function body, a
+specific bug, a design tradeoff — and point them at these files' paths
+instead of re-summarizing their contents into the prompt.
+
 ## Project shape
 
 - `daemon/` — Go module `github.com/njeske/knobd`. The background
@@ -45,7 +58,11 @@ work completes rather than letting the spec drift from reality.
   a clean, verified change sitting uncommitted waiting for a separate
   "commit it" request. Commit straight to `main` — this repo doesn't use
   feature branches, so don't create one (including the usual
-  default-branch-gets-a-branch-first habit).
+  default-branch-gets-a-branch-first habit). If a change alters the
+  runtime data flow, `cmd/knobd` wiring, or a recipe described in
+  `specs/reference/codebase.md`, update that file in the same commit —
+  and run `make codemap` whenever an exported Go signature, interface,
+  or struct field changed (gated in CI, same as `make schema`).
 
 ## Testing without the physical controller
 
