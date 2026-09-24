@@ -109,7 +109,7 @@ func (c Config) Validate() error {
 					return fmt.Errorf("model: profile %q binding %d: %w", p.ID, i, err)
 				}
 			}
-			if sceneID, ok := sceneRefOf(b.Action); ok && !sceneIDs[sceneID] {
+			if sceneID, ok := SceneRefOf(b.Action); ok && !sceneIDs[sceneID] {
 				return fmt.Errorf("model: profile %q binding %d references unknown scene %q", p.ID, i, sceneID)
 			}
 		}
@@ -165,9 +165,12 @@ func TargetOf(a Action) (Target, bool) {
 	}
 }
 
-// sceneRefOf extracts the scene ID an Action carries, for the two
-// actions that reference one.
-func sceneRefOf(a Action) (string, bool) {
+// SceneRefOf extracts the scene ID an Action carries, for the two
+// actions that reference one (SceneApplyAction/SceneSaveAction).
+// Exported for daemon/internal/engine, which needs it at dispatch time
+// (see specs/milestones/M08-layers-groups-scenes.md), mirroring
+// TargetOf.
+func SceneRefOf(a Action) (string, bool) {
 	switch v := a.(type) {
 	case SceneApplyAction:
 		return v.SceneID, true

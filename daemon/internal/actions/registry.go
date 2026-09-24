@@ -60,6 +60,21 @@ type Invocation struct {
 	// Target is the action's configured target, carried for error
 	// messages only.
 	Target model.Target
+
+	// Scene is the resolved model.Scene a SceneApplyAction/
+	// SceneSaveAction names, and SceneRefs is engine's dispatch-time
+	// resolution of each of Scene.Entries' Target, one slice per entry
+	// in the same order -- SceneHandlers must use SceneRefs[i] for
+	// Scene.Entries[i], never re-resolve. Both are nil for every other
+	// action type.
+	Scene     *model.Scene
+	SceneRefs [][]audio.Ref
+
+	// Others are every currently-known playback stream not already in
+	// Refs, resolved by engine at dispatch time for
+	// AudioSoloToggleAction/AudioDuckHoldAction -- the "everything else"
+	// those two actions mute/duck. Nil for every other action type.
+	Others []audio.Ref
 }
 
 // Handler executes one concrete model.Action, given the Invocation it

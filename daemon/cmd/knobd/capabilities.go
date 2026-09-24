@@ -31,8 +31,9 @@ func newCapabilitiesProvider(registry registryActionTypes) *capabilitiesProvider
 // through actions.Registry (engine.dispatchGesture executes them
 // itself, since they mutate state only its own run goroutine owns), but
 // a client asking "what can a binding do" has no reason to care which
-// of the two mechanisms answers it. Features.Scenes is still M08's
-// (scene.apply/scene.save aren't registered yet); Features.Learn is
+// of the two mechanisms answers it. Features.Scenes is true now that
+// scene.apply/scene.save have registered handlers (see
+// actions.SceneHandlers, wired in cmd/knobd/main.go); Features.Learn is
 // true now that POST/DELETE /learn are wired up (see
 // cmd/knobd/learn.go).
 func (c *capabilitiesProvider) Capabilities() api.Capabilities {
@@ -54,7 +55,7 @@ func (c *capabilitiesProvider) Capabilities() api.Capabilities {
 		SupportedTargetKinds: model.TargetKinds(),
 		Features: api.Features{
 			Layers: true,
-			Scenes: false,
+			Scenes: true,
 			Learn:  true,
 		},
 	}

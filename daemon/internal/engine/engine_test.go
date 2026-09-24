@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -779,6 +780,142 @@ func TestEngineRunGroupBindingControlsEveryMatcherSimultaneously(t *testing.T) {
 		v, err := backend.GetVolume(context.Background(), vesktopRef)
 		j, jerr := backend.GetVolume(context.Background(), javaRef)
 		return err == nil && jerr == nil && v.Percent == 106 && j.Percent == 106
+	})
+}
+
+// testConfigStore is a minimal actions.ConfigMutator for engine-level
+// scene tests: SetConfig round-trips through the real engine (so a
+// scene.save's persisted result is exactly what a subsequent Snapshot/
+// dispatch sees), without cmd/knobd's disk-persistence layer.
+type testConfigStore struct {
+	mu  sync.Mutex
+	eng *Engine
+	cfg model.Config
+}
+
+func (s *testConfigStore) Config() model.Config {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg
+}
+
+func (s *testConfigStore) SetConfig(ctx context.Context, cfg model.Config) error {
+	if err := s.eng.SetConfig(ctx, cfg); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.cfg = cfg
+	s.mu.Unlock()
+	return nil
+}
+
+// newTestEngineWithScenes is newTestEngine plus actions.SceneHandlers
+// registered against a testConfigStore, for tests exercising
+// scene.apply/scene.save end to end through the full Run loop.
+func newTestEngineWithScenes(cfg model.Config, clk *testClock) (*Engine, *midi.FakePort, *audio.FakeBackend, *testConfigStore) {
+	port := midi.NewFakePort(16)
+	backend := audio.NewFakeBackend()
+	registry := actions.NewRegistry()
+	var e *Engine
+	vh := actions.NewVolumeHandlers(backend, actions.VolumeOptions{
+		OnApplied: func(audio.Ref, audio.VolumeState) {
+			if e != nil {
+				e.NotifyLEDDirty()
+			}
+		},
+	})
+	vh.Register(registry)
+
+	e = New(Deps{
+		Port:     port,
+		Codec:    device.NewXTouchMiniCodec(),
+		Audio:    backend,
+		Config:   cfg,
+		Registry: registry,
+		Clock:    clk,
+		Observer: vh,
+	})
+
+	store := &testConfigStore{eng: e, cfg: cfg}
+	actions.NewSceneHandlers(vh, store, actions.SceneOptions{}).Register(registry)
+
+	return e, port, backend, store
+}
+
+// TestEngineRunSceneApplyAndSaveEndToEnd is M08's third acceptance
+// criterion, driven through the full Run loop: recalling a scene
+// restores every entry's saved level/mute in one action, and saving a
+// scene captures the live mix into the persisted config.
+func TestEngineRunSceneApplyAndSaveEndToEnd(t *testing.T) {
+	btn1 := model.Control{Kind: model.ControlButton, Index: 1} // note 89, apply on press
+	btn2 := model.Control{Kind: model.ControlButton, Index: 2} // note 90, save on press
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	sinkRef := audio.Ref{Kind: audio.RefSink, ID: "sink1"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Scenes: []model.Scene{{
+			ID: "meeting",
+			Entries: []model.SceneEntry{
+				{Target: model.Target{Kind: model.TargetDefaultSink}, VolumePercent: 20, Muted: true},
+			},
+		}},
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: btn1, Gesture: model.GesturePress, Action: model.SceneApplyAction{SceneID: "meeting"}},
+				{Layer: 0, Control: btn2, Gesture: model.GesturePress, Action: model.SceneSaveAction{SceneID: "meeting"}},
+				// Used to change the live mix through the same
+				// VolumeHandlers cache scene.save reads, the way an
+				// external pavucontrol change would arrive via
+				// audio.Backend.Subscribe in production -- FakeBackend's
+				// SetVolume/SetMute have no Subscribe echo of their own
+				// (see audio.FakeBackend), so poking the backend directly
+				// would leave the cache scene.save actually reads stale,
+				// unlike a real external change.
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.VolumeAdjustAction{Target: model.Target{Kind: model.TargetDefaultSink}, StepPercent: 1}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend, store := newTestEngineWithScenes(cfg, clk)
+	backend.Seed([]audio.Device{{ID: "sink1", IsDefault: true}}, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	press := func(note byte, at time.Time) {
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: note, Data2: 127, Time: at})
+		mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: note, Data2: 0, Time: at.Add(50 * time.Millisecond)})
+	}
+
+	// Apply: the sink goes to the scene's saved 20%/muted.
+	press(89, clk.Now())
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sinkRef)
+		return err == nil && st.Percent == 20 && st.Muted
+	})
+
+	// Change the live mix (turning also implicitly unmutes -- see
+	// VolumeHandlers.ensureUnmuted), then save: the scene's entry must
+	// now hold the new live values.
+	mustInject(t, ctx, port, midi.Message{Status: 0xB0, Data1: 16, Data2: 35, Time: clk.Now().Add(time.Second)}) // +35 -> 55%
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sinkRef)
+		return err == nil && st.Percent == 55 && !st.Muted
+	})
+
+	press(90, clk.Now().Add(2*time.Second))
+
+	waitFor(t, 2*time.Second, func() bool {
+		cfg := store.Config()
+		if len(cfg.Scenes) != 1 || len(cfg.Scenes[0].Entries) != 1 {
+			return false
+		}
+		e := cfg.Scenes[0].Entries[0]
+		return e.VolumePercent == 55 && !e.Muted
 	})
 }
 

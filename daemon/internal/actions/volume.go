@@ -183,8 +183,13 @@ func (v *VolumeHandlers) ensureUnmuted(ctx context.Context, ref audio.Ref, curre
 
 // writeVolume issues one SetVolume for ref, serialized against
 // ObserveState via the in-flight counter, and commits the result to the
-// cache on success. Every caller here writes with muted=false, since
-// they all call ensureUnmuted first.
+// cache on success. SetVolume never touches mute state on the backend,
+// so the cache keeps whatever Muted it already had -- every adjust/set/
+// follow caller here writes with the cache already unmuted (they all
+// call ensureUnmuted first), while SceneHandlers' apply (M08) writes a
+// scene entry's saved percent before separately applying its saved
+// Muted, and must not have this overwrite that with a stale false in
+// between.
 func (v *VolumeHandlers) writeVolume(ctx context.Context, ref audio.Ref, percent float64) error {
 	v.mu.Lock()
 	c, ok := v.cache[ref]
@@ -201,9 +206,11 @@ func (v *VolumeHandlers) writeVolume(ctx context.Context, ref audio.Ref, percent
 	if c.inFlight > 0 {
 		c.inFlight--
 	}
+	var applied audio.VolumeState
 	if err == nil {
-		c.state = audio.VolumeState{Percent: percent, Muted: false, Channels: c.state.Channels}
+		c.state.Percent = percent
 		c.known = true
+		applied = c.state
 	}
 	v.mu.Unlock()
 
@@ -211,7 +218,7 @@ func (v *VolumeHandlers) writeVolume(ctx context.Context, ref audio.Ref, percent
 		return fmt.Errorf("actions: set volume for %+v: %w", ref, err)
 	}
 	if v.opts.OnApplied != nil {
-		v.opts.OnApplied(ref, audio.VolumeState{Percent: percent, Muted: false})
+		v.opts.OnApplied(ref, applied)
 	}
 	return nil
 }
@@ -352,20 +359,39 @@ func (v *VolumeHandlers) executeMuteToggle(ctx context.Context, inv Invocation) 
 		if states[ref].Muted == target {
 			continue
 		}
-		if err := v.backend.SetMute(ctx, ref, target); err != nil {
-			errs = append(errs, fmt.Errorf("actions: set mute for %+v: %w", ref, err))
-			continue
-		}
-		st := states[ref]
-		st.Muted = target
-		v.mu.Lock()
-		v.setCacheLocked(ref, st)
-		v.mu.Unlock()
-		if v.opts.OnApplied != nil {
-			v.opts.OnApplied(ref, st)
+		if err := v.writeMute(ctx, ref, target); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// writeMute issues one SetMute for ref (current is its cached state
+// before the write, used only to build the post-write VolumeState to
+// cache/report) and commits the result to the cache on success. Shared
+// by executeMuteToggle and SceneHandlers' apply (M08).
+func (v *VolumeHandlers) writeMute(ctx context.Context, ref audio.Ref, muted bool) error {
+	// Read the cache fresh rather than accepting a caller-supplied
+	// snapshot: SceneHandlers' apply (M08) writes a scene entry's
+	// percent immediately before its mute, and a snapshot taken before
+	// that percent write would clobber the cache's Percent back to its
+	// pre-write value once merged in below.
+	current, err := v.getCached(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("actions: get mute state for %+v: %w", ref, err)
+	}
+	if err := v.backend.SetMute(ctx, ref, muted); err != nil {
+		return fmt.Errorf("actions: set mute for %+v: %w", ref, err)
+	}
+	st := current
+	st.Muted = muted
+	v.mu.Lock()
+	v.setCacheLocked(ref, st)
+	v.mu.Unlock()
+	if v.opts.OnApplied != nil {
+		v.opts.OnApplied(ref, st)
+	}
+	return nil
 }
 
 func (v *VolumeHandlers) clamp(percent float64, action string) float64 {

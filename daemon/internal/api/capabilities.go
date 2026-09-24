@@ -25,7 +25,7 @@ type Features struct {
 	// effectively runs on layer 0.
 	Layers bool `json:"layers"`
 	// Scenes is true once scene.apply/scene.save have registered
-	// handlers (M08).
+	// handlers.
 	Scenes bool `json:"scenes"`
 	// Learn is true once MIDI learn (POST/DELETE /learn) is wired up.
 	Learn bool `json:"learn"`

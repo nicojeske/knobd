@@ -691,17 +691,30 @@ func (e *Engine) dispatchGesture(ctx context.Context, cfg model.Config, bindings
 	case model.LayerCycleAction:
 		layers.cycle(a.LayerOrder, bindings.maxLayer)
 	default:
-		e.dispatchResolvedAction(action, g, layer, res, dispatchCh)
+		e.dispatchResolvedAction(cfg, action, g, layer, res, dispatchCh)
 		return
 	}
 	// Only the two layer-mutating cases above fall through to here.
 	e.markLEDsDirty(ctx, cfg, bindings, res, layers.active(), leds)
 }
 
-// dispatchResolvedAction resolves action's target (if it has one) and
-// enqueues the resulting Invocation, for every action type that isn't
-// handled inline by dispatchGesture.
-func (e *Engine) dispatchResolvedAction(action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work) {
+// dispatchResolvedAction enqueues the resulting Invocation for every
+// action type that isn't handled inline by dispatchGesture. Most
+// actions resolve a single Target the ordinary way; scene.apply/
+// scene.save and audio.solo_toggle/audio.duck_hold need extra
+// dispatch-time resolution engine alone can do (a scene's several
+// entry targets; solo/duck's "everything else"), so those are broken
+// out into their own helpers below.
+func (e *Engine) dispatchResolvedAction(cfg model.Config, action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work) {
+	switch action.(type) {
+	case model.SceneApplyAction, model.SceneSaveAction:
+		e.dispatchScene(cfg, action, g, layer, res, dispatchCh)
+		return
+	case model.AudioSoloToggleAction, model.AudioDuckHoldAction:
+		e.dispatchWithOthers(action, g, layer, res, dispatchCh)
+		return
+	}
+
 	var refs []audio.Ref
 	target, hasTarget := model.TargetOf(action)
 	if hasTarget {
@@ -729,6 +742,106 @@ func (e *Engine) dispatchResolvedAction(action model.Action, g gesture, layer in
 		Target:  target,
 	}
 	e.enqueueDispatch(dispatchCh, work{inv: inv}, "invocation")
+}
+
+// sceneByID finds id in cfg.Scenes, returning a copy (nil if not
+// found) so the caller can safely hold a pointer to it independent of
+// cfg's own backing array.
+func sceneByID(cfg model.Config, id string) *model.Scene {
+	for i := range cfg.Scenes {
+		if cfg.Scenes[i].ID == id {
+			s := cfg.Scenes[i]
+			return &s
+		}
+	}
+	return nil
+}
+
+// dispatchScene resolves every entry in the scene action names against
+// the live audio graph and enqueues an Invocation carrying both the
+// scene and that per-entry resolution (actions.SceneHandlers must use
+// Invocation.SceneRefs, never re-resolve -- see its doc comment). A
+// scene that no longer exists (e.g. deleted from config after the
+// binding was made) is logged and skipped; an individual entry whose
+// target doesn't currently resolve to anything gets a nil refs slice
+// at its index rather than failing the whole scene -- apply/save must
+// each decide what "not currently resolvable" means for their entry.
+func (e *Engine) dispatchScene(cfg model.Config, action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work) {
+	sceneID, _ := model.SceneRefOf(action) // both callers (see the switch above) always carry one
+	scene := sceneByID(cfg, sceneID)
+	if scene == nil {
+		e.log.Warn("engine: scene not found", "control", g.Control, "gesture", g.Gesture, "sceneId", sceneID)
+		return
+	}
+
+	sceneRefs := make([][]audio.Ref, len(scene.Entries))
+	for i, entry := range scene.Entries {
+		refs, err := res.resolve(entry.Target)
+		if err != nil {
+			e.log.Warn("engine: resolve scene entry target failed", "sceneId", sceneID, "target", entry.Target, "err", err)
+			continue
+		}
+		sceneRefs[i] = refs
+	}
+
+	inv := &actions.Invocation{
+		Action:    action,
+		Control:   g.Control,
+		Gesture:   g.Gesture,
+		Layer:     layer,
+		Delta:     g.Delta,
+		Value:     g.Value,
+		At:        g.At,
+		Scene:     scene,
+		SceneRefs: sceneRefs,
+	}
+	e.enqueueDispatch(dispatchCh, work{inv: inv}, "scene invocation")
+}
+
+// dispatchWithOthers resolves action's Target the ordinary way, plus
+// Others (every currently-known playback stream not in that
+// resolution) for audio.solo_toggle/audio.duck_hold. Unlike
+// dispatchResolvedAction's default path, an empty (or failed) Target
+// resolution here does not skip the dispatch: toggling solo off, or
+// releasing a duck, must still restore prior state even if the app it
+// targeted has since exited -- MixHandlers (M08) decides what "no
+// target refs" means for the gesture it's handling.
+func (e *Engine) dispatchWithOthers(action model.Action, g gesture, layer int, res *resolver, dispatchCh chan<- work) {
+	target, _ := model.TargetOf(action) // both types always carry one
+	refs, err := res.resolve(target)
+	if err != nil {
+		e.log.Warn("engine: resolve target failed", "control", g.Control, "gesture", g.Gesture, "target", target, "err", err)
+		refs = nil
+	}
+
+	inv := &actions.Invocation{
+		Action:  action,
+		Control: g.Control,
+		Gesture: g.Gesture,
+		Layer:   layer,
+		Delta:   g.Delta,
+		Value:   g.Value,
+		At:      g.At,
+		Refs:    refs,
+		Target:  target,
+		Others:  othersExcluding(res.allPlaybackStreams(), refs),
+	}
+	e.enqueueDispatch(dispatchCh, work{inv: inv}, "solo/duck invocation")
+}
+
+// othersExcluding returns every ref in all that isn't in exclude.
+func othersExcluding(all, exclude []audio.Ref) []audio.Ref {
+	excl := make(map[audio.Ref]bool, len(exclude))
+	for _, r := range exclude {
+		excl[r] = true
+	}
+	var out []audio.Ref
+	for _, r := range all {
+		if !excl[r] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // handleAudioEvent updates the resolver's cache from one audio.Event and

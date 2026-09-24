@@ -202,12 +202,14 @@ func runDaemon(args []string) error {
 			}
 		},
 	})
+	sceneHandlers := actions.NewSceneHandlers(volumeHandlers, store, actions.SceneOptions{Logger: logger})
 	// Must run before the eng.Run goroutine below starts: Registry's map
 	// isn't safe to mutate concurrently with Execute, and every handler
 	// in this codebase is registered once at startup for that reason
 	// (see volumeHandlers.Register above and actions.Registry's doc
 	// comment).
 	assignHandlers.Register(registry)
+	sceneHandlers.Register(registry)
 
 	status := &connStatus{}
 	state := &daemonState{eng: eng, status: status, focusAvailable: focusAvailable}
