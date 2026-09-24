@@ -45,7 +45,13 @@ func TestServiceLoginFlow(t *testing.T) {
 		APIBaseURL: apiSrv.URL,
 	})
 
-	authorizeURL, err := s.Login(context.Background())
+	// A canceled-on-cleanup context, not context.Background(): Login
+	// binds Auth.LoopbackPort, a fixed port (see its doc comment), which
+	// must be freed before another test in this package tries to bind
+	// it too.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	authorizeURL, err := s.Login(ctx)
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}

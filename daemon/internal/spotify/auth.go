@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -36,6 +37,23 @@ const (
 		"user-read-playback-state user-modify-playback-state user-read-currently-playing"
 
 	loginTimeout = 5 * time.Minute
+
+	// LoopbackPort is the fixed port StartLogin binds for the OAuth
+	// callback, and what the Spotify Developer Dashboard's redirect URI
+	// must be registered with: http://127.0.0.1:<LoopbackPort>/callback.
+	//
+	// Spotify's documented loopback rule (a registered redirect URI may
+	// omit the port, and the authorize request supplies whatever port
+	// was actually bound) is what this package originally implemented,
+	// binding 127.0.0.1:0 and letting the kernel pick a free port. In
+	// practice, as of September 2026, the Dashboard's own redirect URI
+	// validator rejects a portless loopback URI outright ("needs a
+	// port"), contradicting that documented behavior -- so a fixed,
+	// pre-registered port is used instead. A dynamic port would be
+	// preferable (no possible conflict with another process already
+	// listening on LoopbackPort) if the Dashboard ever accepts one
+	// again; revisit this if so.
+	LoopbackPort = 48721
 )
 
 // Tokens is the result of a successful authorization-code or
@@ -47,11 +65,11 @@ type Tokens struct {
 }
 
 // Auth drives the PKCE authorization-code flow over a one-shot loopback
-// HTTP listener (specs/adr's redirect-URI rules: 127.0.0.1, not
-// "localhost", with no fixed port registered -- see
-// specs/milestones/M10-spotify-web-api.md's Design refinements). Only
-// one login flow runs at a time; starting a new one cancels whatever
-// flow was in progress.
+// HTTP listener on the fixed LoopbackPort (127.0.0.1, not "localhost" --
+// see specs/milestones/M10-spotify-web-api.md's Design refinements for
+// why the port is fixed rather than kernel-assigned). Only one login
+// flow runs at a time; starting a new one cancels whatever flow was in
+// progress.
 type Auth struct {
 	AuthorizeURL string
 	TokenURL     string
@@ -63,8 +81,8 @@ type Auth struct {
 }
 
 type loginSession struct {
-	listener net.Listener
-	cancel   context.CancelFunc
+	server *http.Server
+	cancel context.CancelFunc
 }
 
 // NewAuth returns an Auth pointed at the real Spotify endpoints with a
@@ -82,22 +100,41 @@ func NewAuth(logger *slog.Logger) *Auth {
 	}
 }
 
-// StartLogin binds a loopback listener, builds the authorize URL for
-// clientID, and serves exactly one /callback request (or times out
-// after loginTimeout). onComplete runs exactly once per StartLogin
-// call, off the HTTP-handling goroutine, with either a populated Tokens
-// or a non-nil err (context canceled/timed out, state mismatch, an
-// error= callback param, or a failed code exchange). Calling StartLogin
-// again before a prior flow's onComplete has fired cancels that flow --
-// its onComplete still runs, with a context.Canceled err -- before
-// starting the new one.
+// StartLogin binds the loopback listener on LoopbackPort, builds the
+// authorize URL for clientID, and serves exactly one /callback request
+// (or times out after loginTimeout). onComplete runs exactly once per
+// StartLogin call, off the HTTP-handling goroutine, with either a
+// populated Tokens or a non-nil err (the port already being in use,
+// context canceled/timed out, state mismatch, an error= callback param,
+// or a failed code exchange). Calling StartLogin again before a prior
+// flow's onComplete has fired cancels that flow -- its onComplete still
+// runs, with a context.Canceled err -- before starting the new one
+// (which also frees LoopbackPort for the new listener).
 func (a *Auth) StartLogin(ctx context.Context, clientID string, onComplete func(Tokens, error)) (authorizeURL string, err error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("spotify: bind loopback listener: %w", err)
+	// A prior in-progress flow must be torn down -- synchronously,
+	// before attempting to bind -- because LoopbackPort is fixed (see
+	// its doc comment): unlike the original kernel-assigned-port design,
+	// two flows cannot listen side by side even briefly. server.Close()
+	// (not the graceful Shutdown the natural-timeout path below uses)
+	// closes the listener immediately; it's safe here because no
+	// request can be in flight on it yet -- the fixed port isn't handed
+	// out to two callers to hit at once, so this call and the old
+	// listener's use are strictly sequential from the outside caller's
+	// perspective.
+	a.mu.Lock()
+	prior := a.session
+	a.session = nil
+	a.mu.Unlock()
+	if prior != nil {
+		prior.cancel()
+		prior.server.Close()
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
+
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", LoopbackPort)
+	listener, err := bindLoopbackPort()
+	if err != nil {
+		return "", fmt.Errorf("spotify: bind loopback listener on port %d (already in use by another process?): %w", LoopbackPort, err)
+	}
 
 	verifier, err := generateVerifier()
 	if err != nil {
@@ -112,24 +149,19 @@ func (a *Auth) StartLogin(ctx context.Context, clientID string, onComplete func(
 
 	loginCtx, cancel := context.WithTimeout(ctx, loginTimeout)
 
+	mux := http.NewServeMux()
+	server := &http.Server{Handler: mux}
+
 	a.mu.Lock()
-	if a.session != nil {
-		// cancel() alone is enough: it trips the prior StartLogin
-		// call's own watcher goroutine, which shuts its server down
-		// gracefully (see below) -- closing the listener again here
-		// too would race that shutdown.
-		a.session.cancel()
-	}
-	a.session = &loginSession{listener: listener, cancel: cancel}
+	a.session = &loginSession{server: server, cancel: cancel}
 	a.mu.Unlock()
 
-	mux := http.NewServeMux()
 	var once sync.Once
 	finish := func(tokens Tokens, ferr error) {
 		once.Do(func() {
 			cancel()
 			a.mu.Lock()
-			if a.session != nil && a.session.listener == listener {
+			if a.session != nil && a.session.server == server {
 				a.session = nil
 			}
 			a.mu.Unlock()
@@ -160,7 +192,6 @@ func (a *Auth) StartLogin(ctx context.Context, clientID string, onComplete func(
 		finish(tokens, err)
 	})
 
-	server := &http.Server{Handler: mux}
 	go func() {
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			a.Logger.Warn("spotify: loopback callback server exited", "err", err)
@@ -181,6 +212,32 @@ func (a *Auth) StartLogin(ctx context.Context, clientID string, onComplete func(
 
 	authorizeURL = a.buildAuthorizeURL(clientID, redirectURI, state, verifier)
 	return authorizeURL, nil
+}
+
+// bindLoopbackPort binds LoopbackPort, retrying briefly on EADDRINUSE:
+// the port a just-superseded or just-expired flow was using can take a
+// moment to actually come free -- Shutdown/Close for the natural-
+// timeout/error path runs on its own goroutine (see StartLogin's
+// watcher), not synchronously with whatever triggered it, and a test
+// tearing down one Auth and standing up another hits this same window.
+// The retry budget (~1s) covers that without masking a real, sustained
+// port conflict (another process holding it) -- that still surfaces as
+// this function's error.
+func bindLoopbackPort() (net.Listener, error) {
+	addr := fmt.Sprintf("127.0.0.1:%d", LoopbackPort)
+	var lastErr error
+	for i := 0; i < 40; i++ {
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			return listener, nil
+		}
+		lastErr = err
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			return nil, err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return nil, lastErr
 }
 
 func (a *Auth) buildAuthorizeURL(clientID, redirectURI, state, verifier string) string {

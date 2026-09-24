@@ -6,7 +6,13 @@ import { useConnection } from "../../state/ConnectionContext";
 import appsStyles from "../apps/AppsView.module.css";
 import styles from "./SpotifyView.module.css";
 
-const REDIRECT_URI = "http://127.0.0.1/callback";
+// Must match daemon/internal/spotify.LoopbackPort exactly -- Spotify's
+// Dashboard redirect URI validator rejects a portless loopback URI (the
+// documented "register without a port, supply one dynamically at
+// authorize time" loopback allowance isn't honored there as of
+// September 2026), so the daemon binds this fixed port instead of a
+// kernel-assigned one.
+const REDIRECT_URI = "http://127.0.0.1:48721/callback";
 
 /** SpotifyView is the Spotify tab: a Client ID field (config.spotify.
  * clientId -- public under PKCE, see model.SpotifySettings' own doc
@@ -150,9 +156,9 @@ export function SpotifyView() {
           <ol>
             <li>Create an app (any name/description).</li>
             <li>
-              Add <code>{REDIRECT_URI}</code> as a Redirect URI — no port number: knobd binds a random loopback port per
-              login and Spotify allows that for a portless registered loopback address (it rejects{" "}
-              <code>localhost</code> outright).
+              Add <code>{REDIRECT_URI}</code> as a Redirect URI, exactly as shown (Spotify's dashboard requires a port
+              number on a loopback redirect URI, and rejects <code>localhost</code> outright — knobd always binds this
+              exact port for the login callback).
             </li>
             <li>Enable the Web API under "Which API/SDKs are you planning to use?".</li>
             <li>

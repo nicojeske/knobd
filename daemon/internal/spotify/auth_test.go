@@ -39,6 +39,22 @@ func TestGenerateVerifierLengthAndUniqueness(t *testing.T) {
 	}
 }
 
+// startLoginForTest calls StartLogin with a context this test owns and
+// cancels on cleanup -- required now that LoopbackPort is fixed (see its
+// doc comment): an un-canceled flow would keep the port bound for
+// loginTimeout (5 minutes), starving every other test in this package
+// that also binds it.
+func startLoginForTest(t *testing.T, auth *Auth, clientID string, onComplete func(Tokens, error)) string {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	url, err := auth.StartLogin(ctx, clientID, onComplete)
+	if err != nil {
+		t.Fatalf("StartLogin: %v", err)
+	}
+	return url
+}
+
 // fakeTokenServer stands in for accounts.spotify.com/api/token.
 func fakeTokenServer(t *testing.T, handle func(w http.ResponseWriter, form url.Values)) *httptest.Server {
 	t.Helper()
@@ -76,15 +92,12 @@ func TestStartLoginFullFlow(t *testing.T) {
 		tokens Tokens
 		err    error
 	}, 1)
-	authorizeURL, err := auth.StartLogin(context.Background(), "client-1", func(tokens Tokens, err error) {
+	authorizeURL := startLoginForTest(t, auth, "client-1", func(tokens Tokens, err error) {
 		resultCh <- struct {
 			tokens Tokens
 			err    error
 		}{tokens, err}
 	})
-	if err != nil {
-		t.Fatalf("StartLogin: %v", err)
-	}
 
 	u, err := url.Parse(authorizeURL)
 	if err != nil {
@@ -132,12 +145,9 @@ func TestStartLoginFullFlow(t *testing.T) {
 func TestStartLoginStateMismatch(t *testing.T) {
 	auth := NewAuth(nil)
 	resultCh := make(chan error, 1)
-	authorizeURL, err := auth.StartLogin(context.Background(), "client-1", func(_ Tokens, err error) {
+	authorizeURL := startLoginForTest(t, auth, "client-1", func(_ Tokens, err error) {
 		resultCh <- err
 	})
-	if err != nil {
-		t.Fatalf("StartLogin: %v", err)
-	}
 	u, _ := url.Parse(authorizeURL)
 	redirectURI := u.Query().Get("redirect_uri")
 
@@ -164,12 +174,9 @@ func TestStartLoginStateMismatch(t *testing.T) {
 func TestStartLoginErrorCallback(t *testing.T) {
 	auth := NewAuth(nil)
 	resultCh := make(chan error, 1)
-	authorizeURL, err := auth.StartLogin(context.Background(), "client-1", func(_ Tokens, err error) {
+	authorizeURL := startLoginForTest(t, auth, "client-1", func(_ Tokens, err error) {
 		resultCh <- err
 	})
-	if err != nil {
-		t.Fatalf("StartLogin: %v", err)
-	}
 	u, _ := url.Parse(authorizeURL)
 	redirectURI := u.Query().Get("redirect_uri")
 
@@ -193,19 +200,14 @@ func TestStartLoginErrorCallback(t *testing.T) {
 func TestStartLoginSecondCallCancelsFirst(t *testing.T) {
 	auth := NewAuth(nil)
 	firstResult := make(chan error, 1)
-	_, err := auth.StartLogin(context.Background(), "client-1", func(_ Tokens, err error) {
+	startLoginForTest(t, auth, "client-1", func(_ Tokens, err error) {
 		firstResult <- err
 	})
-	if err != nil {
-		t.Fatalf("StartLogin (first): %v", err)
-	}
 
 	secondResult := make(chan error, 1)
-	if _, err := auth.StartLogin(context.Background(), "client-1", func(_ Tokens, err error) {
+	startLoginForTest(t, auth, "client-1", func(_ Tokens, err error) {
 		secondResult <- err
-	}); err != nil {
-		t.Fatalf("StartLogin (second): %v", err)
-	}
+	})
 
 	select {
 	case err := <-firstResult:

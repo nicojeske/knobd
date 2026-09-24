@@ -23,10 +23,11 @@ that genuinely needs the Web API rather than MPRIS.
 
 **In**: OAuth 2.0 **PKCE** flow (no client secret needed/stored,
 appropriate for a desktop app) with a **loopback redirect**
-(`http://127.0.0.1:<port>/callback`, a locally-bound one-shot HTTP
-listener during the auth flow only), refresh-token storage via the
-Secret Service D-Bus API rather than a plaintext file, handlers for
-`spotify.like_toggle`/`add_to_playlist`/`remove_from_playlist`/
+(`http://127.0.0.1:48721/callback`, a locally-bound one-shot HTTP
+listener during the auth flow only — see Design refinements for why the
+port is fixed rather than dynamically assigned), refresh-token storage
+via the Secret Service D-Bus API rather than a plaintext file, handlers
+for `spotify.like_toggle`/`add_to_playlist`/`remove_from_playlist`/
 `start_playlist`/`queue_track`/`transfer_playback`.
 
 **Out**: any Spotify feature not in the action catalog (this is not a
@@ -160,13 +161,22 @@ developer application — see Risks):
   `/me/tracks*` family, and `/playlists/{id}/items` replaces
   `/playlists/{id}/tracks`. `daemon/internal/spotify/client.go` only
   implements the current shapes.
-- **Loopback redirect URI has no port number registered**
-  (`http://127.0.0.1/callback`) — Spotify allows adding a dynamic port
-  to the authorize request as long as the registered URI omits one;
-  `localhost` is explicitly rejected (must be a literal loopback IP).
-  This is what lets `Auth.StartLogin` bind `127.0.0.1:0` and pick
-  whatever port is free, rather than needing a fixed one the user
-  configures.
+- **Loopback redirect URI uses a fixed port, registered exactly**:
+  `http://127.0.0.1:48721/callback` (`spotify.LoopbackPort`). Spotify's
+  own documentation says a registered loopback redirect URI may omit
+  the port, with the authorize request supplying whatever port was
+  actually bound (this package's original design: `Auth.StartLogin`
+  binding `127.0.0.1:0` and letting the kernel pick one) — but the
+  Developer Dashboard's redirect URI validator rejects a portless
+  loopback URI outright ("needs a port") as of September 2026,
+  contradicting that documented behavior. `localhost` is separately,
+  and consistently, rejected (must be a literal loopback IP). A fixed
+  port means only one login flow can be in progress at a time system-
+  wide; `StartLogin` synchronously tears down (not gracefully — see
+  `bindLoopbackPort`'s retry-on-`EADDRINUSE` doc comment for why a
+  short retry budget still exists) any flow it supersedes before
+  binding, since two flows can no longer listen side by side even
+  briefly.
 - **Spotify actions run on their own worker goroutine**
   (`actions.SpotifyHandlers.Run`, started alongside `eng.Run`/
   `srv.ListenAndServe`/`hub.Run` in `cmd/knobd`), not inline in
