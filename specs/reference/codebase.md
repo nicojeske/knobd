@@ -74,7 +74,12 @@ repeated here):
    `sceneHandlers` (`actions.NewSceneHandlers`, against `volumeHandlers`
    + `store`) and `mixHandlers` (`actions.NewMixHandlers`, against
    `volumeHandlers`) — M08's handler sets, following the same
-   register-before-`eng.Run` rule.
+   register-before-`eng.Run` rule. `media.New` (best-effort, same
+   posture as `focus.New`: no session bus is never a startup failure)
+   and `media.NewTracker` are constructed alongside `focusProv` earlier,
+   and `mediaHandlers` (`actions.NewMediaHandlers`, against the tracker
+   + `media.Backend` + a `media.Notifier` + a live
+   `Config.Media.IgnorePlayers` reader) registers here too — M09.
 8. `api.NewHub`, then adapters into `api.New`: `newAudioGraph`,
    `newCapabilitiesProvider`, `newLearnController` — each is a small
    point-of-use interface adapter defined in `cmd/knobd` itself (see
@@ -145,9 +150,10 @@ instead of a plain `Registry` dispatch:
 **Add a hardware-facing backend** (new I/O surface: a new transport, a
 new focus provider, etc.):
 1. Define a small interface at the point of use (existing examples:
-   `midi.Port`, `audio.Backend`, `focus.Provider`) rather than depending
-   on a concrete type — see `CLAUDE.md` conventions and ADR 0001 (no
-   CGo: a new backend can't introduce one without an ADR).
+   `midi.Port`, `audio.Backend`, `focus.Provider`, `media.Backend`)
+   rather than depending on a concrete type — see `CLAUDE.md`
+   conventions and ADR 0001 (no CGo: a new backend can't introduce one
+   without an ADR).
 2. Ship a `Fake*` implementation in the same package for tests (see each
    package's doc comment, referenced from `docs/codemap.md`).
 3. Table-driven tests against the fake; if the backend needs a fixture
@@ -189,7 +195,7 @@ commit the result — CI fails otherwise (same gate as `make schema`).
 | M06 | `daemon/internal/focus` (`Provider`, KWin script per ADR 0003), `daemon/internal/proctree`, assign-focused-app action |
 | M07 | `ui/` (Tauri + React config app), `api.Hub`/SSE (ADR 0004 Update), `daemon/internal/schema` + `docs/*.json` generation |
 | M08 | Layers, groups, scenes, solo/duck — done; `engine.layerState`/`dispatchGesture`, `resolver.resolveGroup`, `actions.SceneHandlers`/`MixHandlers` |
-| M09 | Media transport (MPRIS) — not started; new `actions` handler set |
+| M09 | Media transport (MPRIS) — done; `daemon/internal/media` (`Backend`/`Tracker`/`Notifier`), `actions.MediaHandlers`, `engine/dispatch.go`'s `media.seek` coalescing, `api.State.Media` |
 | M10 | Spotify Web API — not started; depends on M09 |
 | M11 | Extended actions — not started; new `actions` handler sets |
 | M12 | Packaging: `packaging/`, PKGBUILDs, config migration-on-upgrade, unit/install paths |

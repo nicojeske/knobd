@@ -17,7 +17,7 @@ is in scope for that milestone; it doesn't need to happen earlier.
 |---|---|
 | `volume.adjust` — the default | Implemented — [M03](../milestones/M03-audio-control.md)/[M04](../milestones/M04-mapping-engine-daemon.md) |
 | `volume.balance` — L/R pan | **Not planned.** `audio.Backend` has no per-channel volume write (`VolumeState.Channels` is read-only, used only to preserve balance across a `SetVolume`), and stereo balance isn't a feature this project wants. The type is kept (M01) but has no registered handler as of M04. |
-| `media.seek` | Has a type — [M09](../milestones/M09-media-transport-mpris.md) |
+| `media.seek` | Implemented — [M09](../milestones/M09-media-transport-mpris.md) |
 | ★ `app.cycle` — scroll through currently-playing apps like a real mixer's channel strip | Not yet scheduled — M08's own scope turned out to be layers/groups/scenes/solo/duck only; this wasn't part of it |
 | `sink.cycle` (scroll rather than one-button-per-device) | Planned — [M11](../milestones/M11-extended-actions.md) |
 | `brightness.adjust` | Planned — M11 |
@@ -77,9 +77,9 @@ types themselves.
 
 | Action | Status |
 |---|---|
-| `media.play_pause` / `next` / `previous` / `shuffle_toggle` / `repeat_cycle` | Has a type (`MediaTransportAction` with a `MediaCommand`) — M09 |
-| `media.target_cycle` — choose which player the transport controls | Planned — M09 |
-| `media.now_playing` — notification on track change | Planned — M09 |
+| `media.play_pause` / `next` / `previous` / `shuffle_toggle` / `repeat_cycle` | Implemented (`MediaTransportAction` with a `MediaCommand`) — M09 |
+| `media.target_cycle` — choose which player the transport controls | Implemented — M09 |
+| `media.now_playing` — notification of the current track (button-triggered, not automatic on track change) | Implemented — M09 |
 
 ## Spotify (Web API, beyond what MPRIS can do)
 
