@@ -793,22 +793,42 @@ type SpotifyHandlers struct {
 	opts     SpotifyOptions
 
 	jobs chan spotifyJob
+
+	// volMu guards the volume cache below -- read/written from runJob's
+	// goroutine (volumeAdjust/volumeSet) and from CachedVolumePercent
+	// (engine's run goroutine, via SetSpotifySource), so unlike the rest
+	// of this type's state it needs a real mutex rather than relying on
+	// runJob's own serialization.
+	volMu       sync.Mutex
+	volKnown    bool
+	volPercent  int
+	volCachedAt time.Time
+	// volPending is a single-slot, latest-wins handoff to
+	// runVolumeWriter: only the most recent percent a knob turn settled
+	// on is worth actually sending to Spotify, since every earlier one
+	// in a fast burst is already obsolete by the time it would go out
+	// (see runVolumeWriter's doc comment).
+	volPending chan int
 }
 ```
 
 methods:
 
 ```go
+func (h *SpotifyHandlers) CachedVolumePercent() (float64, bool)
 func (h *SpotifyHandlers) Register(r *Registry)
 func (h *SpotifyHandlers) Run(ctx context.Context)
 func (h *SpotifyHandlers) addToPlaylist(ctx context.Context, a model.SpotifyAddToPlaylistAction) error
+func (h *SpotifyHandlers) cachedOrFetchVolume(_ context.Context) (int, bool)
 func (h *SpotifyHandlers) enqueue(ctx context.Context, inv Invocation) error
 func (h *SpotifyHandlers) likeToggle(ctx context.Context) error
 func (h *SpotifyHandlers) notify(summary, body string)
 func (h *SpotifyHandlers) notifyError(subject string, err error)
+func (h *SpotifyHandlers) publishVolume(percent int)
 func (h *SpotifyHandlers) queueTrack(ctx context.Context, a model.SpotifyQueueTrackAction) error
 func (h *SpotifyHandlers) removeFromPlaylist(ctx context.Context, a model.SpotifyRemoveFromPlaylistAction) error
 func (h *SpotifyHandlers) runJob(parent context.Context, job spotifyJob)
+func (h *SpotifyHandlers) runVolumeWriter(ctx context.Context)
 func (h *SpotifyHandlers) startPlaylist(ctx context.Context, a model.SpotifyStartPlaylistAction) error
 func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyTransferPlaybackAction) error
 func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction) error
@@ -825,6 +845,13 @@ type SpotifyOptions struct {
 	Logger *slog.Logger
 	// Timeout bounds each queued job's context; zero means 10s.
 	Timeout time.Duration
+	// OnVolumeApplied, if set, is called with the new cached percent
+	// every time volumeAdjust/volumeSet update it -- optimistically,
+	// before the corresponding Web API write actually completes (see
+	// publishVolume's doc comment) -- so the ring can update the instant
+	// a knob turn is processed rather than waiting on a network round
+	// trip. Mirrors VolumeOptions.OnApplied's role for local audio.
+	OnVolumeApplied func(percent int)
 }
 ```
 
@@ -1051,6 +1078,7 @@ func (f *fakeSpotifyAPI) RemovePlaylistItems(ctx context.Context, playlistID, ur
 func (f *fakeSpotifyAPI) SaveToLibrary(ctx context.Context, uri string) error
 func (f *fakeSpotifyAPI) SetVolume(ctx context.Context, percent int) error
 func (f *fakeSpotifyAPI) Transfer(ctx context.Context, deviceID string, play bool) error
+func (f *fakeSpotifyAPI) queuedURICopy() string
 ```
 
 ### `soloSession` (struct)
@@ -1162,7 +1190,9 @@ func TestSpotifyTransferPlaybackMatchesByName(t *testing.T)
 func TestSpotifyTransferPlaybackUnknownDevice(t *testing.T)
 func TestSpotifyVolumeAdjustAddsStepToCurrent(t *testing.T)
 func TestSpotifyVolumeAdjustClampsToRange(t *testing.T)
+func TestSpotifyVolumeAdjustReusesCacheWithoutRefetching(t *testing.T)
 func TestSpotifyVolumeSet(t *testing.T)
+func TestSpotifyVolumeWriterAppliesLatestPending(t *testing.T)
 func TestUserFacingSpotifyErrorMapsSentinels(t *testing.T)
 func TestVolumeAdjustCoalescingEquivalence(t *testing.T)
 func TestVolumeAdjustMultiRefIndependent(t *testing.T)
@@ -1198,7 +1228,7 @@ func trackSummary(t spotify.CurrentTrack) string
 func userFacingSpotifyError(err error) string
 ```
 
-**consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`, `repeatCycleOrder`, `spotifyQueueDepth`
+**consts/vars:** `defaultAssignStepPercent`, `maxAssignStepPercent`, `repeatCycleOrder`, `spotifyQueueDepth`, `spotifyVolumeCacheTTL`
 
 **tests:** `assign_test.go`, `media_test.go`, `mix_test.go`, `registry_test.go`, `scene_test.go`, `spotify_test.go`, `volume_test.go`
 
@@ -3051,6 +3081,23 @@ Now() time.Time
 NewTimer(d time.Duration) Timer
 ```
 
+### `SpotifyVolumeObserver` (interface)
+
+SpotifyVolumeObserver answers the ring's "what percent is the active
+Spotify Connect device at" question from a cache, the same
+non-blocking-read role StateObserver.CachedLevel plays for local
+audio.Ref targets -- Spotify volume actions carry no model.Target for
+buildSnapshot's usual Target->Refs->CachedLevel join to key off of
+(there is exactly one account-wide level, not one per ref), so
+ledDesired reads this directly instead. *actions.SpotifyHandlers
+implements it; wired via SetSpotifySource rather than Deps, since
+constructing it needs the config store, which needs Engine to already
+exist (see cmd/knobd/main.go's construction order comment).
+
+```go
+CachedVolumePercent() (float64, bool)
+```
+
 ### `StateObserver` (interface)
 
 StateObserver receives volume/mute readings the engine observes from
@@ -3127,6 +3174,10 @@ type Deps struct {
 	Logger   *slog.Logger
 	Clock    Clock
 	Observer StateObserver
+	// SpotifySource is nil until SetSpotifySource is called; ledDesired
+	// treats a nil SpotifySource exactly like Observer being nil for a
+	// ref with nothing cached yet -- the ring just stays off.
+	SpotifySource SpotifyVolumeObserver
 
 	// OnInput, if non-nil, receives every decoded device.Event while
 	// MIDI learn is armed (see SetLearnUntil) -- and only then; it is
@@ -3192,6 +3243,7 @@ func (e *Engine) RepaintLEDs(ctx context.Context) error
 func (e *Engine) Run(ctx context.Context) error
 func (e *Engine) SetConfig(ctx context.Context, cfg model.Config) error
 func (e *Engine) SetLearnUntil(ctx context.Context, deadline time.Time) error
+func (e *Engine) SetSpotifySource(obs SpotifyVolumeObserver)
 func (e *Engine) Snapshot(ctx context.Context) (Snapshot, error)
 func (e *Engine) buildSnapshot(cfg model.Config, bindings *bindingIndex, res *resolver, layer int, learnUntil time.Time) Snapshot
 func (e *Engine) dispatchGesture(ctx context.Context, cfg model.Config, bindings *bindingIndex, res *resolver, layers *layerState, downLayer map[model.Control]int, g gesture, dispatchCh chan<- work, leds *ledState)
@@ -3312,6 +3364,25 @@ type configRequest struct {
 	cfg   model.Config
 	reply chan error
 }
+```
+
+### `fakeSpotifyVolumeObserver` (struct)
+
+fakeSpotifyVolumeObserver is a minimal SpotifyVolumeObserver test
+double -- actions.SpotifyHandlers itself is exercised in
+daemon/internal/actions; this only needs to prove ledDesired reads it.
+
+```go
+type fakeSpotifyVolumeObserver struct {
+	percent float64
+	ok      bool
+}
+```
+
+methods:
+
+```go
+func (f *fakeSpotifyVolumeObserver) CachedVolumePercent() (float64, bool)
 ```
 
 ### `flashRequest` (struct)
@@ -3807,6 +3878,7 @@ func TestEngineRunGroupBindingControlsEveryMatcherSimultaneously(t *testing.T)
 func TestEngineRunLEDButtonLightsWhenMappedRegardlessOfAction(t *testing.T)
 func TestEngineRunLEDButtonTracksMute(t *testing.T)
 func TestEngineRunLEDRateLimitingCollapsesBurst(t *testing.T)
+func TestEngineRunLEDRingTracksSpotifyVolume(t *testing.T)
 func TestEngineRunLEDRingTracksVolume(t *testing.T)
 func TestEngineRunLEDUnboundRingIsBlank(t *testing.T)
 func TestEngineRunLatchTogglesLayer(t *testing.T)
@@ -3866,6 +3938,7 @@ func learnTestConfig(enc1 model.Control) model.Config
 func ledButtonUpdate(c model.Control, vol *audio.VolumeState) device.LEDUpdate
 func ledOffUpdate(c model.Control) device.LEDUpdate
 func ledRingUpdate(c model.Control, vol *audio.VolumeState) device.LEDUpdate
+func ledRingUpdateFromPercent(c model.Control, percent float64) device.LEDUpdate
 func mergeable(a, b work) bool
 func mustInject(t *testing.T, ctx context.Context, port *midi.FakePort, msg midi.Message)
 func newTestEngineWithScenes(cfg model.Config, clk *testClock) (*Engine, *midi.FakePort, *audio.FakeBackend, *testConfigStore)

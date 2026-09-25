@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/njeske/knobd/internal/media"
@@ -47,12 +48,26 @@ type SpotifyAPI interface {
 // makes elsewhere.
 const spotifyQueueDepth = 8
 
+// spotifyVolumeCacheTTL bounds how long volumeAdjust trusts its cached
+// baseline before re-fetching CurrentVolume: long enough that a burst of
+// knob turns (the case that actually matters for feel) never re-reads,
+// short enough that the level a phone or another client changed while
+// the knob sat untouched isn't stale for long once it's picked up again.
+const spotifyVolumeCacheTTL = 60 * time.Second
+
 // SpotifyOptions configures SpotifyHandlers. The zero value is sane
 // defaults.
 type SpotifyOptions struct {
 	Logger *slog.Logger
 	// Timeout bounds each queued job's context; zero means 10s.
 	Timeout time.Duration
+	// OnVolumeApplied, if set, is called with the new cached percent
+	// every time volumeAdjust/volumeSet update it -- optimistically,
+	// before the corresponding Web API write actually completes (see
+	// publishVolume's doc comment) -- so the ring can update the instant
+	// a knob turn is processed rather than waiting on a network round
+	// trip. Mirrors VolumeOptions.OnApplied's role for local audio.
+	OnVolumeApplied func(percent int)
 }
 
 func (o SpotifyOptions) logger() *slog.Logger {
@@ -91,6 +106,22 @@ type SpotifyHandlers struct {
 	opts     SpotifyOptions
 
 	jobs chan spotifyJob
+
+	// volMu guards the volume cache below -- read/written from runJob's
+	// goroutine (volumeAdjust/volumeSet) and from CachedVolumePercent
+	// (engine's run goroutine, via SetSpotifySource), so unlike the rest
+	// of this type's state it needs a real mutex rather than relying on
+	// runJob's own serialization.
+	volMu       sync.Mutex
+	volKnown    bool
+	volPercent  int
+	volCachedAt time.Time
+	// volPending is a single-slot, latest-wins handoff to
+	// runVolumeWriter: only the most recent percent a knob turn settled
+	// on is worth actually sending to Spotify, since every earlier one
+	// in a fast burst is already obsolete by the time it would go out
+	// (see runVolumeWriter's doc comment).
+	volPending chan int
 }
 
 // NewSpotifyHandlers builds a SpotifyHandlers. notifier is used for
@@ -100,10 +131,11 @@ type SpotifyHandlers struct {
 // start_playlist/queue_track/transfer_playback).
 func NewSpotifyHandlers(api SpotifyAPI, notifier media.Notifier, opts SpotifyOptions) *SpotifyHandlers {
 	return &SpotifyHandlers{
-		api:      api,
-		notifier: notifier,
-		opts:     opts,
-		jobs:     make(chan spotifyJob, spotifyQueueDepth),
+		api:        api,
+		notifier:   notifier,
+		opts:       opts,
+		jobs:       make(chan spotifyJob, spotifyQueueDepth),
+		volPending: make(chan int, 1),
 	}
 }
 
@@ -140,12 +172,40 @@ func (h *SpotifyHandlers) enqueue(ctx context.Context, inv Invocation) error {
 // error worth racing the daemon's other goroutines over; ctx
 // cancellation is the only exit.
 func (h *SpotifyHandlers) Run(ctx context.Context) {
+	go h.runVolumeWriter(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case job := <-h.jobs:
 			h.runJob(ctx, job)
+		}
+	}
+}
+
+// runVolumeWriter drains volPending and issues the actual
+// PUT /me/player/volume for each value, one at a time. It runs
+// independently of the main job queue specifically so a burst of
+// spotify.volume_adjust turns never queues up multiple real HTTP round
+// trips behind each other -- volumeAdjust/volumeSet only ever update the
+// cache and hand off the latest target here, returning to runJob
+// immediately (see spotifyQueueDepth's doc comment on why runJob itself
+// must never block on the network). If a new value arrives while a
+// write is still in flight, it simply waits in the size-1 volPending
+// slot and is picked up as soon as the current write finishes -- any
+// value that arrives after that point silently supersedes it.
+func (h *SpotifyHandlers) runVolumeWriter(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case pct := <-h.volPending:
+			writeCtx, cancel := context.WithTimeout(ctx, h.opts.timeout())
+			err := h.api.SetVolume(writeCtx, pct)
+			cancel()
+			if err != nil {
+				h.opts.logger().Warn("actions: spotify volume write failed", "percent", pct, "err", err)
+			}
 		}
 	}
 }
@@ -280,22 +340,89 @@ func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyT
 		a.DeviceName, strings.Join(names, ", "))
 }
 
-// volumeAdjust reads the active Spotify Connect device's current volume
-// fresh on every call (no local cache, unlike VolumeHandlers) so a level
-// changed from elsewhere -- another client, or Spotify Connect itself --
-// is always the adjustment's starting point rather than a stale echo of
-// this process's last write.
+// volumeAdjust adjusts the cached baseline by a.StepPercent and hands
+// the result to publishVolume -- it never itself waits on the
+// PUT /me/player/volume round trip (see runVolumeWriter), only
+// (occasionally) on the GET /me/player that seeds/refreshes the cache.
+// The baseline is re-fetched when unknown or stale (see
+// spotifyVolumeCacheTTL) rather than on every call, unlike
+// CurrentlyPlaying-backed actions (like_toggle etc.), which always read
+// fresh -- a knob spun quickly needs each detent to feel instant far
+// more than it needs to react to a volume change made from elsewhere
+// mid-spin.
 func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction) error {
-	current, err := h.api.CurrentVolume(ctx)
-	if err != nil {
-		return err
+	current, ok := h.cachedOrFetchVolume(ctx)
+	if !ok {
+		fresh, err := h.api.CurrentVolume(ctx)
+		if err != nil {
+			return err
+		}
+		current = fresh
 	}
-	next := clampPercent(float64(current) + a.StepPercent)
-	return h.api.SetVolume(ctx, next)
+	h.publishVolume(clampPercent(float64(current) + a.StepPercent))
+	return nil
 }
 
 func (h *SpotifyHandlers) volumeSet(ctx context.Context, a model.SpotifyVolumeSetAction) error {
-	return h.api.SetVolume(ctx, clampPercent(a.Percent))
+	h.publishVolume(clampPercent(a.Percent))
+	return nil
+}
+
+// cachedOrFetchVolume returns the cached percent if known and not older
+// than spotifyVolumeCacheTTL; ok is false if volumeAdjust must fall back
+// to a fresh CurrentVolume call.
+func (h *SpotifyHandlers) cachedOrFetchVolume(_ context.Context) (int, bool) {
+	h.volMu.Lock()
+	defer h.volMu.Unlock()
+	if h.volKnown && time.Since(h.volCachedAt) < spotifyVolumeCacheTTL {
+		return h.volPercent, true
+	}
+	return 0, false
+}
+
+// publishVolume commits percent to the cache, fires OnVolumeApplied
+// (the ring's update seam) immediately, and hands percent to
+// runVolumeWriter as the latest write target -- optimistically, ahead
+// of that write actually succeeding. If the write later fails (no
+// active device, a network error), the cache and the ring stay on a
+// value Spotify never actually applied until the next adjust re-fetches
+// past spotifyVolumeCacheTTL; this trades a rare, self-correcting
+// mismatch for every knob turn feeling as immediate as a local one.
+func (h *SpotifyHandlers) publishVolume(percent int) {
+	h.volMu.Lock()
+	h.volKnown = true
+	h.volPercent = percent
+	h.volCachedAt = time.Now()
+	h.volMu.Unlock()
+
+	if h.opts.OnVolumeApplied != nil {
+		h.opts.OnVolumeApplied(percent)
+	}
+
+	for {
+		select {
+		case h.volPending <- percent:
+			return
+		default:
+		}
+		select {
+		case <-h.volPending:
+		default:
+		}
+	}
+}
+
+// CachedVolumePercent implements engine.SpotifyVolumeObserver: a cheap,
+// non-blocking read of the last percent volumeAdjust/volumeSet
+// committed, for the ring. ok is false until the first adjust/set call
+// (nothing has ever been cached yet).
+func (h *SpotifyHandlers) CachedVolumePercent() (float64, bool) {
+	h.volMu.Lock()
+	defer h.volMu.Unlock()
+	if !h.volKnown {
+		return 0, false
+	}
+	return float64(h.volPercent), true
 }
 
 func clampPercent(v float64) int {

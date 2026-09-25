@@ -126,6 +126,64 @@ func TestEngineRunLEDRingTracksVolume(t *testing.T) {
 	})
 }
 
+// fakeSpotifyVolumeObserver is a minimal SpotifyVolumeObserver test
+// double -- actions.SpotifyHandlers itself is exercised in
+// daemon/internal/actions; this only needs to prove ledDesired reads it.
+type fakeSpotifyVolumeObserver struct {
+	percent float64
+	ok      bool
+}
+
+func (f *fakeSpotifyVolumeObserver) CachedVolumePercent() (float64, bool) { return f.percent, f.ok }
+
+// TestEngineRunLEDRingTracksSpotifyVolume is the M10 volume-control
+// follow-up: an encoder bound to spotify.volume_adjust has no Target for
+// buildSnapshot's usual join, so its ring must come from
+// Deps.SpotifySource instead (see SetSpotifySource/SpotifyVolumeObserver).
+func TestEngineRunLEDRingTracksSpotifyVolume(t *testing.T) {
+	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: enc1, Gesture: model.GestureTurn,
+					Action: model.SpotifyVolumeAdjustAction{StepPercent: 5}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, _ := newTestEngine(cfg, clk)
+	obs := &fakeSpotifyVolumeObserver{}
+	e.SetSpotifySource(obs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	// Nothing cached yet (ok=false): the ring stays blank, same as an
+	// unbound encoder.
+	waitFor(t, 2*time.Second, func() bool {
+		w := ringWrites(port, 1)
+		return len(w) > 0 && w[len(w)-1].Data2 == 0x00
+	})
+
+	// Once the observer has a cached percent, NotifyLEDDirty (the same
+	// seam actions.SpotifyOptions.OnVolumeApplied uses) makes the ring
+	// reflect it -- with no audio.Backend/Target resolution involved at
+	// all.
+	obs.percent, obs.ok = 65, true
+	e.NotifyLEDDirty()
+	clk.Advance(ledFlushInterval)
+
+	want := fillValue(65)
+	waitFor(t, 2*time.Second, func() bool {
+		w := ringWrites(port, 1)
+		return len(w) > 0 && w[len(w)-1].Data2 == want
+	})
+}
+
 // TestEngineRunLEDUnboundRingIsBlank is acceptance criterion 5: an
 // encoder with no binding shows a blank ring, painted by the initial
 // repaint that runs even before any input arrives.

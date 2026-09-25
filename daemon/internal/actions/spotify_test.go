@@ -77,8 +77,15 @@ func (f *fakeSpotifyAPI) PlayContext(ctx context.Context, contextURI string) err
 	return f.playErr
 }
 func (f *fakeSpotifyAPI) Queue(ctx context.Context, trackURI string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.queuedURI = trackURI
 	return f.queueErr
+}
+func (f *fakeSpotifyAPI) queuedURICopy() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.queuedURI
 }
 func (f *fakeSpotifyAPI) Transfer(ctx context.Context, deviceID string, play bool) error {
 	f.transferredDevice, f.transferredPlay = deviceID, play
@@ -214,14 +221,20 @@ func TestSpotifyQueueTrack(t *testing.T) {
 	}
 }
 
+// TestSpotifyVolumeAdjustAddsStepToCurrent checks volumeAdjust's own
+// synchronous effect: the cache (and thus CachedVolumePercent, the
+// ring's source) updates immediately, without waiting for
+// runVolumeWriter (started only by Run, not by runOne) to actually issue
+// the PUT. See TestSpotifyVolumeWriterAppliesLatestPending for that
+// asynchronous half.
 func TestSpotifyVolumeAdjustAddsStepToCurrent(t *testing.T) {
 	api := &fakeSpotifyAPI{volume: 40}
 	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
 
 	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
 
-	if !api.setVolumeCalled || api.setVolume != 45 {
-		t.Errorf("SetVolume = %d, called=%v, want 45", api.setVolume, api.setVolumeCalled)
+	if pct, ok := h.CachedVolumePercent(); !ok || pct != 45 {
+		t.Errorf("CachedVolumePercent = %v, %v, want 45, true", pct, ok)
 	}
 }
 
@@ -231,8 +244,25 @@ func TestSpotifyVolumeAdjustClampsToRange(t *testing.T) {
 
 	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 10})
 
-	if api.setVolume != 100 {
-		t.Errorf("SetVolume = %d, want clamped to 100", api.setVolume)
+	if pct, ok := h.CachedVolumePercent(); !ok || pct != 100 {
+		t.Errorf("CachedVolumePercent = %v, %v, want 100, true", pct, ok)
+	}
+}
+
+// TestSpotifyVolumeAdjustReusesCacheWithoutRefetching checks the whole
+// point of the cache: a second adjust right after the first must not
+// call CurrentVolume again (that's the extra network round trip that
+// made every detent feel slow before the cache existed).
+func TestSpotifyVolumeAdjustReusesCacheWithoutRefetching(t *testing.T) {
+	api := &fakeSpotifyAPI{volume: 40}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
+	api.volume = 999 // if a second adjust re-fetches, it'll pick this up
+	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
+
+	if pct, ok := h.CachedVolumePercent(); !ok || pct != 50 {
+		t.Errorf("CachedVolumePercent = %v, %v, want 50 (cache reused, not refetched)", pct, ok)
 	}
 }
 
@@ -242,8 +272,42 @@ func TestSpotifyVolumeSet(t *testing.T) {
 
 	runOne(t, h, model.SpotifyVolumeSetAction{Percent: 30})
 
-	if !api.setVolumeCalled || api.setVolume != 30 {
-		t.Errorf("SetVolume = %d, called=%v, want 30", api.setVolume, api.setVolumeCalled)
+	if pct, ok := h.CachedVolumePercent(); !ok || pct != 30 {
+		t.Errorf("CachedVolumePercent = %v, %v, want 30, true", pct, ok)
+	}
+}
+
+// TestSpotifyVolumeWriterAppliesLatestPending exercises the async half
+// runOne skips: with Run (and therefore runVolumeWriter) actually
+// started, a burst of adjusts converges on the last one's target, not
+// every intermediate value.
+func TestSpotifyVolumeWriterAppliesLatestPending(t *testing.T) {
+	api := &fakeSpotifyAPI{volume: 0}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go h.Run(ctx)
+
+	for i := 0; i < 5; i++ {
+		if err := h.enqueue(context.Background(), Invocation{Action: model.SpotifyVolumeAdjustAction{StepPercent: 10}}); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		api.mu.Lock()
+		got := api.setVolume
+		called := api.setVolumeCalled
+		api.mu.Unlock()
+		if called && got == 50 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("SetVolume never converged to 50, last seen %d (called=%v)", got, called)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -305,7 +369,7 @@ func TestSpotifyRunProcessesQueuedJobs(t *testing.T) {
 	}
 
 	deadline := time.After(2 * time.Second)
-	for api.queuedURI == "" {
+	for api.queuedURICopy() == "" {
 		select {
 		case <-deadline:
 			t.Fatal("Run did not process the queued job in time")

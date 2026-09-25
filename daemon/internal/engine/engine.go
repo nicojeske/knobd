@@ -53,6 +53,20 @@ type StateObserver interface {
 	CachedLevel(ref audio.Ref) (audio.VolumeState, bool)
 }
 
+// SpotifyVolumeObserver answers the ring's "what percent is the active
+// Spotify Connect device at" question from a cache, the same
+// non-blocking-read role StateObserver.CachedLevel plays for local
+// audio.Ref targets -- Spotify volume actions carry no model.Target for
+// buildSnapshot's usual Target->Refs->CachedLevel join to key off of
+// (there is exactly one account-wide level, not one per ref), so
+// ledDesired reads this directly instead. *actions.SpotifyHandlers
+// implements it; wired via SetSpotifySource rather than Deps, since
+// constructing it needs the config store, which needs Engine to already
+// exist (see cmd/knobd/main.go's construction order comment).
+type SpotifyVolumeObserver interface {
+	CachedVolumePercent() (float64, bool)
+}
+
 // Deps bundles the backends Engine needs. Port, Codec, Audio, and Config
 // are required; Focus/Registry/Logger/Clock/Observer fall back to a
 // working default (focus.Unavailable(), an empty actions.Registry,
@@ -75,6 +89,10 @@ type Deps struct {
 	Logger   *slog.Logger
 	Clock    Clock
 	Observer StateObserver
+	// SpotifySource is nil until SetSpotifySource is called; ledDesired
+	// treats a nil SpotifySource exactly like Observer being nil for a
+	// ref with nothing cached yet -- the ring just stays off.
+	SpotifySource SpotifyVolumeObserver
 
 	// OnInput, if non-nil, receives every decoded device.Event while
 	// MIDI learn is armed (see SetLearnUntil) -- and only then; it is
@@ -193,6 +211,17 @@ func (e *Engine) Snapshot(ctx context.Context) (Snapshot, error) {
 	case <-ctx.Done():
 		return Snapshot{}, ctx.Err()
 	}
+}
+
+// SetSpotifySource wires obs as the ring's source of truth for
+// controls bound to a Spotify volume action. Must be called before Run
+// starts (like every other Deps field, set once at construction) --
+// it exists as a setter rather than a Deps field only because obs
+// (*actions.SpotifyHandlers) can't be constructed until after the
+// config store exists, which itself needs Engine to already exist (see
+// cmd/knobd/main.go). Not safe to call concurrently with Run.
+func (e *Engine) SetSpotifySource(obs SpotifyVolumeObserver) {
+	e.deps.SpotifySource = obs
 }
 
 // NotifyLEDDirty wakes the run loop to recompute and (throttled) flush

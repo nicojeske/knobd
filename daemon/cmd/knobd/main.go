@@ -299,7 +299,20 @@ func runDaemon(args []string) error {
 	// Reuses mediaNotifier (org.freedesktop.Notifications, same session
 	// bus) for like_toggle/add_to_playlist/remove_from_playlist's result
 	// notifications -- no reason for a second Notifier implementation.
-	spotifyHandlers := actions.NewSpotifyHandlers(spotifySvc.Client(), mediaNotifier, actions.SpotifyOptions{Logger: logger})
+	spotifyHandlers := actions.NewSpotifyHandlers(spotifySvc.Client(), mediaNotifier, actions.SpotifyOptions{
+		Logger: logger,
+		OnVolumeApplied: func(int) {
+			if eng != nil {
+				eng.NotifyLEDDirty()
+			}
+		},
+	})
+	// eng already exists by this point (constructed above), but
+	// spotifyHandlers couldn't be built until now (it needs spotifySvc,
+	// which needs the config store, which needs eng) -- see
+	// SetSpotifySource's doc comment for why this is a setter rather
+	// than a Deps field.
+	eng.SetSpotifySource(spotifyHandlers)
 
 	// Must run before the eng.Run goroutine below starts: Registry's map
 	// isn't safe to mutate concurrently with Execute, and every handler

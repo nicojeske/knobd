@@ -113,13 +113,18 @@ newest press with a logged warning rather than blocking.
       refreshes ahead of expiry and on a 401 with one retry, covered by
       `TestTokenManagerRefreshesWhenExpired`/`TestClientRetriesOnceOn401`.)
 - [x] A knob adjusts, and a button sets, the active Spotify Connect
-      device's volume via the Web API. (`actions.SpotifyHandlers.
-      volumeAdjust`/`volumeSet`, `spotify.Client.CurrentVolume`/
-      `SetVolume`; covered by `TestSpotifyVolumeAdjust*`/
-      `TestSpotifyVolumeSet`/`TestClientCurrentVolume*`/
-      `TestClientSetVolume`. Manual confirmation that a real Spotify
-      Connect device's volume actually moves, and stays in sync when
-      changed from elsewhere, is open.)
+      device's volume via the Web API, without each turn waiting on a
+      network round trip, and the turned encoder's LED ring reflects the
+      level. (`actions.SpotifyHandlers.volumeAdjust`/`volumeSet`/
+      `runVolumeWriter`/`CachedVolumePercent`, `spotify.Client.
+      CurrentVolume`/`SetVolume`, `engine.SpotifyVolumeObserver`/
+      `SetSpotifySource`; covered by `TestSpotifyVolumeAdjust*`/
+      `TestSpotifyVolumeSet`/`TestSpotifyVolumeWriterAppliesLatestPending`/
+      `TestClientCurrentVolume*`/`TestClientSetVolume`/
+      `TestEngineRunLEDRingTracksSpotifyVolume`. Manual confirmation that
+      a real Spotify Connect device's volume actually moves, feels
+      responsive under a fast knob spin, and stays in sync when changed
+      from elsewhere, is open.)
 
 ## Verification
 
@@ -229,6 +234,46 @@ developer application — see Risks):
   entry about the `/playlists/{id}/items` DELETE body shape being
   unconfirmed for the sibling `/me/library` endpoints specifically (the
   playlist-items body shape itself is still unconfirmed — see Risks).
+- **`spotify.volume_adjust`/`volume_set` cache the volume locally and
+  never let a knob turn wait on the network** -- found by hand-testing:
+  the original implementation did a `GET /me/player` (to read the
+  current level) followed by a `PUT /me/player/volume` on every single
+  detent, both awaited synchronously inside the same job the queue
+  processes one at a time, so a fast spin of the knob felt clearly
+  laggy (each detent paid two real HTTPS round trips, serialized).
+  `SpotifyHandlers` now keeps a local `percent`/`known`/`cachedAt` cache
+  (`spotifyVolumeCacheTTL` = 60s), refetched via `CurrentVolume` only
+  when unknown or stale, and hands each new target to a dedicated
+  `runVolumeWriter` goroutine over a single-slot, latest-wins channel
+  (`volPending`) instead of writing inline -- `volumeAdjust`/
+  `volumeSet` return to the job queue immediately, so a burst of turns
+  collapses to one in-flight `PUT` plus whatever the knob settled on
+  last, the same "coalesce a burst to the latest value" tradeoff
+  `engine`'s LED flush throttle already makes for a different reason.
+  The ring/cache update optimistically, before that `PUT` is confirmed
+  (see `publishVolume`'s doc comment) -- a knob turn that's about to
+  fail (no active device, a dropped connection) still shows the turned-
+  to value until the next stale-cache refetch corrects it, trading a
+  rare, self-correcting mismatch for every turn feeling as immediate as
+  a local `volume.adjust` binding.
+- **The LED ring for `spotify.volume_adjust`/`volume_set` needed a
+  second source of truth, not `buildSnapshot`'s usual one** -- these
+  actions carry no `model.Target` (there is exactly one account-wide
+  Spotify Connect volume, not one per resolved `audio.Ref`), so
+  `engine.ledDesired`'s existing Target->Refs->`StateObserver.
+  CachedLevel` join always produced a nil `Volume` and rendered the
+  ring blank, same as an unbound encoder -- LED feedback was simply
+  never wired for these two actions, not merely stale. Fixed with a
+  parallel, minimal seam: `engine.SpotifyVolumeObserver` (one method,
+  `CachedVolumePercent() (float64, bool)`), implemented by
+  `*actions.SpotifyHandlers` off the same cache the speed fix above
+  introduced; wired via `Engine.SetSpotifySource` (a setter, not a
+  `Deps` field, since `spotifyHandlers` can't be constructed until
+  after the config store exists, which itself needs `Engine` to already
+  exist -- see `cmd/knobd/main.go`'s construction-order comment) and
+  `actions.SpotifyOptions.OnVolumeApplied` (mirrors `VolumeOptions.
+  OnApplied`'s role, calling `eng.NotifyLEDDirty()` on the same
+  optimistic cache update, not on the `PUT`'s eventual completion).
 - **`spotify.Service.Login` takes no `ctx` parameter, deliberately** --
   found by hand-testing the real flow: `api`'s `handleSpotifyLogin`
   originally threaded `r.Context()` (POST /spotify/login's own request

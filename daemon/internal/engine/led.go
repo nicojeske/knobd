@@ -202,6 +202,27 @@ func (e *Engine) ledDesired(cfg model.Config, bindings *bindingIndex, res *resol
 		}
 	}
 
+	// A control bound to a Spotify volume action shows the active
+	// Spotify Connect device's level the same way a local-audio encoder
+	// shows its target's -- but sourced from SpotifySource's cache
+	// instead of snap.Controls's Target->Refs join, since these actions
+	// carry no Target (see SpotifyVolumeObserver's doc comment).
+	if e.deps.SpotifySource != nil {
+		for _, ab := range bindings.activeBindings(layer) {
+			if ab.Control.Kind != model.ControlEncoder {
+				continue
+			}
+			switch ab.Action.(type) {
+			case model.SpotifyVolumeAdjustAction, model.SpotifyVolumeSetAction:
+			default:
+				continue
+			}
+			if pct, ok := e.deps.SpotifySource.CachedVolumePercent(); ok {
+				desired[ab.Control] = ledRingUpdateFromPercent(ab.Control, pct)
+			}
+		}
+	}
+
 	// A control bound to a layer action lights while its own effect is
 	// currently in force -- independent of the volume/mute pass above,
 	// since layer actions carry no Target for buildSnapshot's join to
@@ -259,7 +280,14 @@ func ledRingUpdate(c model.Control, vol *audio.VolumeState) device.LEDUpdate {
 	if vol == nil {
 		return ledOffUpdate(c)
 	}
-	pos := int(math.Round(vol.Percent / 100 * float64(device.MaxRingPosition)))
+	return ledRingUpdateFromPercent(c, vol.Percent)
+}
+
+// ledRingUpdateFromPercent is ledRingUpdate's math, factored out so a
+// source with no audio.VolumeState of its own (SpotifySource's plain
+// percent) can render the same ring fill.
+func ledRingUpdateFromPercent(c model.Control, percent float64) device.LEDUpdate {
+	pos := int(math.Round(percent / 100 * float64(device.MaxRingPosition)))
 	if pos < 0 {
 		pos = 0
 	}
