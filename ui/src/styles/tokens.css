@@ -12,7 +12,7 @@
   --color-border: #d8dbe0;
   --color-text: #1a1d24;
   --color-text-muted: #5c6270;
-  --color-accent: #2f8f88;
+  --color-accent: #dda120;
   --color-accent-contrast: #ffffff;
   --color-danger: #c0392b;
   --color-warning: #b8860b;
@@ -22,8 +22,8 @@
    * that mirrors the same three-tier bound/unresolved/live distinction. */
   --ctl-unbound: #c7cbd1;
   --ctl-bound: #5c6270;
-  --ctl-live: #2f8f88;
-  --ctl-live-fill: #5cc8c2;
+  --ctl-live: #dda120;
+  --ctl-live-fill: #faba2f;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -50,7 +50,7 @@
     --color-border: #383d47;
     --color-text: #e7e9ee;
     --color-text-muted: #9aa0ad;
-    --color-accent: #5cc8c2;
+  --color-accent: #dda120;
     --color-accent-contrast: #0b1210;
     --color-danger: #e0776a;
     --color-warning: #e0b84d;
@@ -58,7 +58,7 @@
 
     --ctl-unbound: #454b57;
     --ctl-bound: #9aa0ad;
-    --ctl-live: #5cc8c2;
-    --ctl-live-fill: #5cc8c2;
+    --ctl-live: #dda120;
+    --ctl-live-fill: #faba2f;
   }
 }
