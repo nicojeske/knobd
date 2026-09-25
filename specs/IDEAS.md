@@ -1,0 +1,4 @@
+- [ ] Show app icon above encoder in UI
+- [ ] Better action selection
+- [ ] Modernize UI
+- [ ] Discord Integration
