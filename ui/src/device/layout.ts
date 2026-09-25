@@ -64,3 +64,49 @@ export function supportedGestures(kind: ControlKind): readonly Gesture[] {
 export function supportsGesture(kind: ControlKind, gesture: Gesture): boolean {
   return supportedGestures(kind).includes(gesture);
 }
+
+/** gestureLabel gives every Gesture a name a non-hardware-hacker
+ * recognizes -- the raw values ("hold", "double_press") read fine in
+ * JSON but not in a picker. Used by the binding editor's gesture list;
+ * kept here, not component-local, so it stays next to the Gesture union
+ * it describes. */
+export function gestureLabel(gesture: Gesture): string {
+  switch (gesture) {
+    case "turn":
+      return "Turn";
+    case "press":
+      return "Press";
+    case "hold":
+      return "Long press";
+    case "release":
+      return "Release";
+    case "double_press":
+      return "Double press";
+    case "move":
+      return "Move";
+  }
+}
+
+/** gestureHint gives the binding editor's timing callout for a
+ * gesture, when one is worth showing -- undefined for gestures with no
+ * timing subtlety (turn, move). doubleBound/holdBound tell it whether
+ * the *other* gesture that shares this control's press is actually
+ * bound, since a press with nothing double-bound never waits (see
+ * daemon/internal/engine/gesture.go's deferPress) and a long press with
+ * nothing hold/release-bound never turns into a hold (the same
+ * detectHold refinement). */
+export function gestureHint(gesture: Gesture, opts: { doubleBound: boolean; holdBound: boolean }): string | undefined {
+  switch (gesture) {
+    case "press":
+      return opts.doubleBound ? "Waits up to 350 ms to rule out a double press." : undefined;
+    case "hold":
+      return "Hold for 600 ms. Release sooner and it's a normal press instead.";
+    case "release":
+      return opts.holdBound ? "Fires when you let go after a long press." : undefined;
+    case "double_press":
+      return "Two presses within 350 ms.";
+    case "turn":
+    case "move":
+      return undefined;
+  }
+}

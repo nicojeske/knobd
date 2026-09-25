@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { LAYOUT } from "./geometry";
-import { ALL_KINDS, hasLed, indexRange, supportsGesture } from "./layout";
+import { ALL_KINDS, gestureHint, gestureLabel, hasLed, indexRange, supportsGesture } from "./layout";
+import type { Gesture } from "./layout";
 
 describe("LAYOUT completeness", () => {
   it("covers every (kind, index) in the generated ranges exactly once", () => {
@@ -61,5 +62,40 @@ describe("device layout semantics", () => {
     expect(supportsGesture("fader", "turn")).toBe(false);
     expect(supportsGesture("button", "hold")).toBe(true);
     expect(supportsGesture("button", "turn")).toBe(false);
+  });
+});
+
+describe("gestureLabel", () => {
+  it("gives every gesture a friendly, distinct label", () => {
+    const gestures: Gesture[] = ["turn", "press", "hold", "release", "double_press", "move"];
+    const labels = gestures.map(gestureLabel);
+    expect(new Set(labels).size).toBe(gestures.length);
+    expect(gestureLabel("hold")).toBe("Long press");
+    expect(gestureLabel("double_press")).toBe("Double press");
+  });
+});
+
+describe("gestureHint", () => {
+  it("has no hint for press/release when nothing defers/holds", () => {
+    expect(gestureHint("press", { doubleBound: false, holdBound: false })).toBeUndefined();
+    expect(gestureHint("release", { doubleBound: false, holdBound: false })).toBeUndefined();
+  });
+
+  it("hints press when double_press is bound", () => {
+    expect(gestureHint("press", { doubleBound: true, holdBound: false })).toMatch(/double press/);
+  });
+
+  it("hints release only when hold/release is bound", () => {
+    expect(gestureHint("release", { doubleBound: false, holdBound: true })).toMatch(/long press/);
+  });
+
+  it("always hints hold and double_press", () => {
+    expect(gestureHint("hold", { doubleBound: false, holdBound: false })).toBeDefined();
+    expect(gestureHint("double_press", { doubleBound: false, holdBound: false })).toBeDefined();
+  });
+
+  it("has no hint for turn/move", () => {
+    expect(gestureHint("turn", { doubleBound: false, holdBound: false })).toBeUndefined();
+    expect(gestureHint("move", { doubleBound: false, holdBound: false })).toBeUndefined();
   });
 });

@@ -41,6 +41,22 @@ hardware" checklist below is real end-to-end verification that still
 needs a person at the keyboard and the physical device, per this repo's
 own testing policy (see `CLAUDE.md`).
 
+**Refinement (2026-09-25): the binding editor edits every gesture of a
+control in one dialog.** `BindingEditor.tsx` originally edited one
+(layer, control, gesture) at a time behind a single dropdown, which
+made assigning several actions to one control (press, long press,
+double press, ...) technically possible but not discoverable. It's now
+a two-pane dialog: a gesture list on the left (with a glyph, a live
+summary of what's bound, and an inherited-from-layer-0/modified state
+per row) and the action editor on the right, holding per-gesture drafts
+so switching rows or layers never discards an in-progress edit. One
+Save applies every draft at once (`config/bindings.ts`'s
+`applyGestureDrafts`). Paired with the `detectHold` refinement recorded
+in M04: the dialog's timing hints (`device/layout.ts`'s `gestureHint`)
+reflect that a `hold`/`release` row only actually fires once something
+is bound to it. No config shape change, so no `make schema`/
+`make ui-codegen` needed.
+
 ## Depends on
 
 M04 (a real API to talk to). Benefits from, but doesn't strictly need,

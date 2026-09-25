@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { Binding } from "../types/config";
-import { bindingKey, findBinding, findDuplicateKeys, removeBinding, upsertBinding } from "./bindings";
+import {
+  applyGestureDrafts,
+  bindingKey,
+  findBinding,
+  findDuplicateKeys,
+  removeBinding,
+  upsertBinding,
+} from "./bindings";
+import type { GestureDraft } from "./bindings";
 
 const enc1 = { kind: "encoder" as const, index: 1 };
 const enc2 = { kind: "encoder" as const, index: 2 };
@@ -73,6 +81,56 @@ describe("removeBinding", () => {
     const result = removeBinding(bindings, 0, enc1, "turn");
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ control: enc2 });
+  });
+});
+
+describe("applyGestureDrafts", () => {
+  const encPush1 = { kind: "encoder_push" as const, index: 1 };
+
+  function draft(gesture: Binding["gesture"], stepPercent: number, control = encPush1): GestureDraft {
+    return {
+      control,
+      gesture,
+      action: { type: "volume.adjust", params: { target: { kind: "default_sink" }, stepPercent } },
+    };
+  }
+
+  it("upserts several gestures for the same control in one pass", () => {
+    const result = applyGestureDrafts([], 0, [draft("press", 1), draft("hold", 2), draft("double_press", 3)]);
+    expect(result).toHaveLength(3);
+    expect(findBinding(result, 0, encPush1, "press")?.action.params).toMatchObject({ stepPercent: 1 });
+    expect(findBinding(result, 0, encPush1, "hold")?.action.params).toMatchObject({ stepPercent: 2 });
+    expect(findBinding(result, 0, encPush1, "double_press")?.action.params).toMatchObject({ stepPercent: 3 });
+  });
+
+  it("a null-action draft removes an existing binding instead of upserting", () => {
+    const existing = [binding(0, 1, "turn", 5)];
+    const clear: GestureDraft = { control: { kind: "encoder", index: 1 }, gesture: "turn", action: null };
+    const result = applyGestureDrafts(existing, 0, [clear]);
+    expect(result).toEqual([]);
+  });
+
+  it("a null-action draft for a gesture with no existing binding is a no-op", () => {
+    const clear: GestureDraft = { control: encPush1, gesture: "hold", action: null };
+    expect(applyGestureDrafts([], 0, [clear])).toEqual([]);
+  });
+
+  it("leaves other controls, layers, and gestures untouched", () => {
+    const existing = [binding(0, 1, "turn", 5), binding(1, 1, "turn", 9), binding(0, 2, "turn", 7)];
+    const result = applyGestureDrafts(existing, 0, [draft("press", 1)]);
+    expect(result).toHaveLength(4);
+    expect(findBinding(result, 1, { kind: "encoder", index: 1 }, "turn")?.action.params).toMatchObject({
+      stepPercent: 9,
+    });
+    expect(findBinding(result, 0, { kind: "encoder", index: 2 }, "turn")?.action.params).toMatchObject({
+      stepPercent: 7,
+    });
+  });
+
+  it("never mutates the input array", () => {
+    const existing = Object.freeze([binding(0, 1, "turn", 5)]);
+    applyGestureDrafts(existing, 0, [draft("press", 1)]);
+    expect(existing).toHaveLength(1);
   });
 });
 

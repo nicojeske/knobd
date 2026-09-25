@@ -2,7 +2,7 @@
 // (layer, control.kind, control.index, gesture). Using the identical
 // key means "is this the same binding" agrees between the UI and the
 // daemon, including the last-one-wins resolution a duplicate gets.
-import type { Binding, Control } from "../types/config";
+import type { Action, Binding, Control } from "../types/config";
 
 export function bindingKey(layer: number, control: Control, gesture: Binding["gesture"]): string {
   return `${layer}|${control.kind}|${control.index}|${gesture}`;
@@ -51,6 +51,41 @@ export function removeBinding(
 ): Binding[] {
   const key = bindingKey(layer, control, gesture);
   return bindings.filter((b) => bindingKeyOf(b) !== key);
+}
+
+/** GestureDraft is one pending edit the binding editor holds before
+ * Save: `action: null` means "clear this gesture's binding" (the old
+ * dialog's "Remove binding" button, now per-row instead of per-dialog).
+ * `control` carries its own `kind` (not just index) because one screen
+ * position spans two Control kinds for an encoder -- turn is
+ * "encoder", press/hold/release/double_press is "encoder_push" (see
+ * BindingEditor's gestureOptions) -- and a draft must know which one it
+ * edits. */
+export interface GestureDraft {
+  control: Control;
+  gesture: Binding["gesture"];
+  action: Action | null;
+}
+
+/** applyGestureDrafts folds every draft for one control (spanning
+ * however many gestures were edited in one binding-editor session) into
+ * `bindings` in a single pass, so the editor's Save button is one
+ * saveConfig call instead of one per gesture. Built on the same
+ * upsertBinding/removeBinding this module already exposes, applied in
+ * order -- immutable, never mutates `bindings`. */
+export function applyGestureDrafts(
+  bindings: readonly Binding[],
+  layer: number,
+  drafts: readonly GestureDraft[],
+): Binding[] {
+  let result: readonly Binding[] = bindings;
+  for (const draft of drafts) {
+    result =
+      draft.action === null
+        ? removeBinding(result, layer, draft.control, draft.gesture)
+        : upsertBinding(result, { layer, control: draft.control, gesture: draft.gesture, action: draft.action });
+  }
+  return result as Binding[];
 }
 
 /** findDuplicateKeys returns every binding key that appears more than

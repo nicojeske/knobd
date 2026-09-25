@@ -1,9 +1,11 @@
 import type { State } from "../../api/client";
 import { RING_POSITIONS } from "../../device/layout";
-import { controlLiveInfo } from "./controlState";
+import { boundGestures, boundGesturesSummary, controlLiveInfo } from "./controlState";
 import { Ring } from "./Ring";
 
 const KNOB_RADIUS = 24;
+const GESTURE_DOT_RADIUS = 2;
+const GESTURE_DOT_GAP = 7;
 
 function litSegmentCount(percent: number): number {
   const raw = Math.round((percent / 100) * RING_POSITIONS);
@@ -30,6 +32,8 @@ export function Encoder({
 }) {
   const turnInfo = controlLiveInfo(state, "encoder", index);
   const pushInfo = controlLiveInfo(state, "encoder_push", index);
+  const pushGestures = boundGestures(state, "encoder_push", index);
+  const pushSummary = boundGesturesSummary(pushGestures);
 
   const litCount =
     turnInfo.tier === "live" && turnInfo.volumePercent !== undefined ? litSegmentCount(turnInfo.volumePercent) : 0;
@@ -41,7 +45,8 @@ export function Encoder({
         ? "var(--ctl-bound)"
         : "var(--ctl-unbound)";
 
-  const label = `Encoder ${index}${turnInfo.actionType ? ` — turn: ${turnInfo.actionType}` : ""}${pushInfo.actionType ? ` — push: ${pushInfo.actionType}` : ""}`;
+  const label = `Encoder ${index}${turnInfo.actionType ? ` — turn: ${turnInfo.actionType}` : ""}${pushSummary ? ` — push: ${pushSummary}` : ""}`;
+  const dotsStartX = cx - ((pushGestures.length - 1) * GESTURE_DOT_GAP) / 2;
 
   return (
     <g
@@ -73,6 +78,17 @@ export function Encoder({
       >
         E{index}
       </text>
+      {pushGestures.length > 1
+        ? pushGestures.map((g, i) => (
+            <circle
+              key={g.gesture}
+              cx={dotsStartX + i * GESTURE_DOT_GAP}
+              cy={cy + KNOB_RADIUS + 6}
+              r={GESTURE_DOT_RADIUS}
+              style={{ fill: "var(--color-accent)" }}
+            />
+          ))
+        : null}
     </g>
   );
 }

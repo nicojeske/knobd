@@ -12,7 +12,8 @@
 // a just-created binding lights up before it round-trips through the
 // daemon), while "bound vs live" stays driven by GET /state either way.
 import type { State } from "../../api/client";
-import type { ControlKind } from "../../device/layout";
+import type { ControlKind, Gesture } from "../../device/layout";
+import { gestureLabel } from "../../device/layout";
 
 export type ControlTier = "unbound" | "bound" | "live";
 
@@ -44,4 +45,28 @@ export function controlLiveInfo(state: State | undefined, kind: ControlKind, ind
     };
   }
   return { tier: "bound", volumePercent: undefined, muted: undefined, actionType: primary.actionType };
+}
+
+export interface BoundGesture {
+  gesture: Gesture;
+  actionType: string;
+}
+
+/** boundGestures lists every gesture this (kind, index) control has an
+ * action on right now, for a tooltip/summary that shows all of them at
+ * once -- not just controlLiveInfo's single "primary" entry -- now that
+ * one control commonly has a different action per gesture (press, long
+ * press, double press, ...). */
+export function boundGestures(state: State | undefined, kind: ControlKind, index: number): BoundGesture[] {
+  if (!state) return [];
+  return state.controls
+    .filter((c) => c.control.kind === kind && c.control.index === index)
+    .map((c) => ({ gesture: c.gesture, actionType: c.actionType }));
+}
+
+/** boundGesturesSummary renders boundGestures as one line for a tooltip,
+ * e.g. "Press: media.transport · Long press: spotify.like_toggle". */
+export function boundGesturesSummary(bound: readonly BoundGesture[]): string | undefined {
+  if (bound.length === 0) return undefined;
+  return bound.map((b) => `${gestureLabel(b.gesture)}: ${b.actionType}`).join(" · ");
 }

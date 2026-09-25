@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
 
 import { isBridgeError, saveConfig } from "../../api/client";
-import { ACTION_SPECS, actionTypes, type ActionType } from "../../actions/specs";
-import { findBinding, removeBinding, upsertBinding } from "../../config/bindings";
+import { ACTION_SPECS, actionTypes, type ActionGroup, type ActionType } from "../../actions/specs";
+import { applyGestureDrafts, findBinding, type GestureDraft } from "../../config/bindings";
 import type { ControlKind, Gesture } from "../../device/layout";
-import { supportedGestures } from "../../device/layout";
+import { gestureHint, gestureLabel, supportedGestures } from "../../device/layout";
 import { useCapabilities } from "../../state/CapabilitiesContext";
 import { useConfig } from "../../state/ConfigContext";
-import type { Action, Binding } from "../../types/config";
+import type { Action } from "../../types/config";
 import { ActionParamsForm } from "./ActionParamsForm";
 import styles from "./BindingEditor.module.css";
 import { Dialog } from "../common/Dialog";
+import { GestureGlyph } from "./GestureGlyph";
 
 interface GestureOption {
   kind: ControlKind;
@@ -28,15 +29,27 @@ interface GestureOption {
 function gestureOptions(primaryKind: ControlKind): GestureOption[] {
   if (primaryKind === "encoder" || primaryKind === "encoder_push") {
     return [
-      ...supportedGestures("encoder").map((gesture) => ({ kind: "encoder" as const, gesture, label: "Turn" })),
+      ...supportedGestures("encoder").map((gesture) => ({
+        kind: "encoder" as const,
+        gesture,
+        label: gestureLabel(gesture),
+      })),
       ...supportedGestures("encoder_push").map((gesture) => ({
         kind: "encoder_push" as const,
         gesture,
-        label: `Push: ${gesture}`,
+        label: gestureLabel(gesture),
       })),
     ];
   }
-  return supportedGestures(primaryKind).map((gesture) => ({ kind: primaryKind, gesture, label: gesture }));
+  return supportedGestures(primaryKind).map((gesture) => ({
+    kind: primaryKind,
+    gesture,
+    label: gestureLabel(gesture),
+  }));
+}
+
+function optionKey(layer: number, o: GestureOption): string {
+  return `${layer}|${o.kind}|${o.gesture}`;
 }
 
 function buildAction(type: ActionType): Action {
@@ -48,6 +61,37 @@ function buildAction(type: ActionType): Action {
   // express "params matches whichever type is bound at this call site"
   // without this cast at the boundary between the two.
   return { type, params: spec.defaults() } as Action;
+}
+
+const GROUP_ORDER: readonly ActionGroup[] = [
+  "volume",
+  "audio",
+  "scene",
+  "layer",
+  "knob",
+  "media",
+  "spotify",
+  "sink",
+  "mic",
+  "shell",
+];
+
+const GROUP_LABELS: Record<ActionGroup, string> = {
+  volume: "Volume",
+  audio: "Mix & duck",
+  scene: "Scenes",
+  layer: "Layers",
+  knob: "Knob",
+  media: "Media",
+  spotify: "Spotify",
+  sink: "System",
+  mic: "Microphone",
+  shell: "Shell",
+};
+
+function actionEqual(a: Action | null | undefined, b: Action | null | undefined): boolean {
+  if (a == null || b == null) return (a ?? null) === (b ?? null);
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 export function BindingEditor({
@@ -80,74 +124,106 @@ export function BindingEditor({
   const { config, reload } = useConfig();
   const { capabilities } = useCapabilities();
 
-  const [layer, setLayerState] = useState(initialLayer);
-
+  const [layer, setLayer] = useState(initialLayer);
   const options = useMemo(() => gestureOptions(primaryKind), [primaryKind]);
   const preferredOption = preferredGesture ? options.find((o) => o.gesture === preferredGesture) : undefined;
-  const firstOption = preferredOption ?? options[0];
-  const [selectionKey, setSelectionKey] = useState<string>(
-    firstOption ? `${firstOption.kind}:${firstOption.gesture}` : "",
-  );
-  const selection = options.find((o) => `${o.kind}:${o.gesture}` === selectionKey) ?? firstOption;
+  const [selectionKey, setSelectionKey] = useState<string>(() => {
+    const first = preferredOption ?? options[0];
+    return first ? `${first.kind}:${first.gesture}` : "";
+  });
+  const selection = options.find((o) => `${o.kind}:${o.gesture}` === selectionKey) ?? options[0];
 
-  const profile = config?.profiles.find((p) => p.id === config.activeProfileId);
-  const existing =
-    profile && selection
-      ? findBinding(profile.bindings, layer, { kind: selection.kind, index }, selection.gesture)
-      : undefined;
-  // A non-zero layer with no binding of its own falls back to layer 0's
-  // at runtime (see engine/bindings.go's lookup) -- surfaced below so
-  // editing layer 2, say, doesn't look identical to "unbound" when it's
-  // actually inheriting layer 0's action.
-  const inheritedFromLayerZero =
-    layer !== 0 && !existing && profile && selection
-      ? findBinding(profile.bindings, 0, { kind: selection.kind, index }, selection.gesture)
-      : undefined;
-
-  const [action, setAction] = useState<Action | undefined>(existing?.action);
+  // drafts holds every pending edit across every (layer, gesture) this
+  // dialog session has touched, keyed by optionKey(layer, option) --
+  // switching gesture or layer never discards an edit already made
+  // elsewhere in the same session. A draft value of `null` means "clear
+  // this gesture's binding"; absence means "unchanged from what's
+  // saved."
+  const [drafts, setDrafts] = useState<Map<string, Action | null>>(new Map());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
-  // Re-derive the working action whenever the selected gesture changes
-  // to a different existing (or empty) binding -- keyed by selection so
-  // switching back and forth doesn't clobber in-progress edits.
-  const activeAction = action ?? existing?.action;
+  const profile = config?.profiles.find((p) => p.id === config.activeProfileId);
 
-  function selectOption(key: string) {
-    setSelectionKey(key);
-    const next = options.find((o) => `${o.kind}:${o.gesture}` === key);
-    const nextExisting =
-      profile && next ? findBinding(profile.bindings, layer, { kind: next.kind, index }, next.gesture) : undefined;
-    setAction(nextExisting?.action);
+  // savedActionFor/draftFor/effectiveActionFor below are pure lookups
+  // against `profile`/`drafts` -- kept as plain functions (not useMemo)
+  // since they're cheap and always called with the current render's
+  // closures.
+  function savedActionFor(l: number, o: GestureOption): Action | undefined {
+    return profile ? findBinding(profile.bindings, l, { kind: o.kind, index }, o.gesture)?.action : undefined;
+  }
+  function draftFor(l: number, o: GestureOption): Action | null | undefined {
+    return drafts.get(optionKey(l, o));
+  }
+  function effectiveActionFor(l: number, o: GestureOption): Action | undefined {
+    const draft = draftFor(l, o);
+    if (draft !== undefined) return draft ?? undefined;
+    return savedActionFor(l, o);
+  }
+  function isModified(l: number, o: GestureOption): boolean {
+    const draft = draftFor(l, o);
+    if (draft === undefined) return false;
+    return !actionEqual(draft, savedActionFor(l, o) ?? null);
   }
 
-  function selectLayer(next: number) {
-    setLayerState(next);
-    const nextExisting =
-      profile && selection
-        ? findBinding(profile.bindings, next, { kind: selection.kind, index }, selection.gesture)
-        : undefined;
-    setAction(nextExisting?.action);
+  // Not memoized: cheap (bounded by the handful of gestures one control
+  // has and the handful of layers a session touches), and every draft
+  // edit needs to recompute both anyway.
+  let modifiedCount = 0;
+  for (const o of options) {
+    for (const l of new Set([layer, ...[...drafts.keys()].map((k) => Number(k.split("|")[0]))])) {
+      if (isModified(l, o)) modifiedCount++;
+    }
   }
 
-  function selectActionType(type: ActionType) {
-    setAction(buildAction(type));
+  const layersInUse = (() => {
+    const set = new Set<number>([0, initialLayer, layer]);
+    for (const b of profile?.bindings ?? []) set.add(b.layer);
+    for (const k of drafts.keys()) set.add(Number(k.split("|")[0]));
+    return [...set].sort((a, b) => a - b);
+  })();
+
+  function setDraft(o: GestureOption, action: Action | null) {
+    const key = optionKey(layer, o);
+    setDrafts((prev) => {
+      const next = new Map(prev);
+      const saved = savedActionFor(layer, o) ?? null;
+      if (actionEqual(action, saved)) {
+        // Back to the saved value: drop the draft entirely so the
+        // "modified" count stays honest instead of accumulating no-op
+        // edits.
+        next.delete(key);
+      } else {
+        next.set(key, action);
+      }
+      return next;
+    });
   }
 
-  async function handleSave() {
-    if (!config || !profile || !activeAction || !selection) return;
+  function addLayer() {
+    const next = (layersInUse.at(-1) ?? 0) + 1;
+    setLayer(next);
+  }
+
+  async function commit() {
+    if (!config || !profile) return;
     setSaving(true);
     setError(undefined);
     try {
-      const binding: Binding = {
-        layer,
-        control: { kind: selection.kind, index },
-        gesture: selection.gesture,
-        action: activeAction,
-      };
-      const nextProfiles = config.profiles.map((p) =>
-        p.id === profile.id ? { ...p, bindings: upsertBinding(p.bindings, binding) } : p,
-      );
+      const byLayer = new Map<number, GestureDraft[]>();
+      for (const [key, action] of drafts) {
+        const [layerStr, kindStr, gestureStr] = key.split("|");
+        const l = Number(layerStr);
+        const list = byLayer.get(l) ?? [];
+        list.push({ control: { kind: kindStr as ControlKind, index }, gesture: gestureStr as Gesture, action });
+        byLayer.set(l, list);
+      }
+      let bindings = profile.bindings;
+      for (const [l, ds] of byLayer) {
+        bindings = applyGestureDrafts(bindings, l, ds);
+      }
+      const nextProfiles = config.profiles.map((p) => (p.id === profile.id ? { ...p, bindings } : p));
       await saveConfig({ ...config, profiles: nextProfiles });
       await reload();
       onClose();
@@ -158,142 +234,264 @@ export function BindingEditor({
     }
   }
 
-  async function handleDelete() {
-    if (!config || !profile || !selection) return;
-    setSaving(true);
-    setError(undefined);
-    try {
-      const nextProfiles = config.profiles.map((p) =>
-        p.id === profile.id
-          ? { ...p, bindings: removeBinding(p.bindings, layer, { kind: selection.kind, index }, selection.gesture) }
-          : p,
-      );
-      await saveConfig({ ...config, profiles: nextProfiles });
-      await reload();
-      onClose();
-    } catch (err) {
-      setError(isBridgeError(err) ? err.message : String(err));
-    } finally {
-      setSaving(false);
+  function requestClose() {
+    if (modifiedCount > 0 && !confirmingDiscard) {
+      setConfirmingDiscard(true);
+      return;
     }
+    onClose();
   }
 
   if (!config || !profile) {
     return (
-      <Dialog title={`${primaryKind} ${index}`} onClose={onClose}>
+      <Dialog title={`${primaryKind} ${index}`} onClose={onClose} size="wide">
         <p>Loading configuration…</p>
       </Dialog>
     );
   }
 
   const implemented = new Set(capabilities?.implementedActions ?? []);
+  const activeAction = selection ? effectiveActionFor(layer, selection) : undefined;
+  const inheritedAction =
+    selection && layer !== 0 && draftFor(layer, selection) === undefined && !savedActionFor(layer, selection)
+      ? savedActionFor(0, selection)
+      : undefined;
+  const doubleBoundHere = options.some((o) => o.gesture === "double_press" && effectiveActionFor(layer, o));
+  const holdBoundHere = options.some(
+    (o) => (o.gesture === "hold" || o.gesture === "release") && effectiveActionFor(layer, o),
+  );
+  const hint = selection
+    ? gestureHint(selection.gesture, { doubleBound: doubleBoundHere, holdBound: holdBoundHere })
+    : undefined;
+
+  const groups = new Map<ActionGroup, ActionType[]>();
+  for (const t of actionTypes()) {
+    const g = ACTION_SPECS[t].group;
+    const list = groups.get(g) ?? [];
+    list.push(t);
+    groups.set(g, list);
+  }
 
   return (
-    <Dialog title={`${primaryKind} ${index}`} onClose={onClose}>
-      <div className={styles.row}>
-        <label>Layer</label>
-        <input
-          type="number"
-          min={0}
-          step={1}
-          value={layer}
-          onChange={(e) => {
-            const next = Number(e.target.value);
-            if (Number.isInteger(next) && next >= 0) selectLayer(next);
-          }}
-        />
-      </div>
-      {inheritedFromLayerZero ? (
-        <div className={styles.note}>
-          Layer {layer} has no binding of its own here -- layer 0's (
-          {ACTION_SPECS[inheritedFromLayerZero.action.type].label}) applies until one is added.
-        </div>
-      ) : null}
-
-      <div className={styles.row}>
-        <label>Gesture</label>
-        <select
-          value={selectionKey}
-          onChange={(e) => {
-            selectOption(e.target.value);
-          }}
-        >
-          {options.map((o) => (
-            <option key={`${o.kind}:${o.gesture}`} value={`${o.kind}:${o.gesture}`}>
-              {o.label}
-            </option>
+    <Dialog title={`${primaryKind} ${index}`} onClose={requestClose} size="wide">
+      <div className={styles.header}>
+        <span className={styles.headerLabel}>Layer</span>
+        <div className={styles.layerTabs} role="tablist" aria-label="Layer">
+          {layersInUse.map((l) => (
+            <button
+              key={l}
+              type="button"
+              role="tab"
+              aria-selected={l === layer}
+              className={l === layer ? `${styles.layerTab} ${styles.layerTabActive}` : styles.layerTab}
+              onClick={() => {
+                setLayer(l);
+              }}
+            >
+              {l}
+            </button>
           ))}
-        </select>
-      </div>
-
-      <div className={styles.row}>
-        <label>Action</label>
-        <select
-          value={activeAction?.type ?? ""}
-          onChange={(e) => {
-            selectActionType(e.target.value as ActionType);
-          }}
-        >
-          <option value="" disabled>
-            {existing ? "(bound)" : "Choose an action…"}
-          </option>
-          {actionTypes().map((type) => (
-            <option key={type} value={type}>
-              {ACTION_SPECS[type].label}
-              {implemented.has(type) ? "" : " (not implemented yet)"}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {activeAction && !implemented.has(activeAction.type) ? (
-        <div className={styles.note}>
-          This daemon build has no handler for "{activeAction.type}" yet -- the binding will be saved, but won't do
-          anything until a future milestone registers one.
+          <button type="button" className={styles.layerAdd} title="Add a new layer" onClick={addLayer}>
+            +
+          </button>
         </div>
-      ) : null}
-      {activeAction && ACTION_SPECS[activeAction.type].note ? (
-        <div className={styles.note}>{ACTION_SPECS[activeAction.type].note}</div>
-      ) : null}
+      </div>
 
-      {activeAction ? (
-        <ActionParamsForm
-          type={activeAction.type}
-          params={activeAction.params}
-          onChange={(nextParams) => {
-            setAction({ type: activeAction.type, params: nextParams } as Action);
-          }}
-        />
-      ) : null}
+      <div className={styles.splitPane}>
+        <div className={styles.gestureList} role="listbox" aria-label="Gesture">
+          {options.map((o) => {
+            const key = `${o.kind}:${o.gesture}`;
+            const action = effectiveActionFor(layer, o);
+            const inherited =
+              layer !== 0 && draftFor(layer, o) === undefined && !savedActionFor(layer, o)
+                ? savedActionFor(0, o)
+                : undefined;
+            const modified = isModified(layer, o);
+            const selected = key === selectionKey;
+            const summary = action
+              ? ACTION_SPECS[action.type].label
+              : inherited
+                ? `from layer 0: ${ACTION_SPECS[inherited.type].label}`
+                : "Add action…";
+            return (
+              <button
+                key={key}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={
+                  selected
+                    ? `${styles.gestureRow} ${styles.gestureRowSelected}`
+                    : `${styles.gestureRow}${!action && !inherited ? ` ${styles.gestureRowEmpty}` : ""}`
+                }
+                onClick={() => {
+                  setSelectionKey(key);
+                }}
+              >
+                <GestureGlyph gesture={o.gesture} className={styles.gestureGlyph} />
+                <span className={styles.gestureRowText}>
+                  <span className={styles.gestureRowLabel}>{o.label}</span>
+                  <span
+                    className={
+                      inherited && !action
+                        ? `${styles.gestureRowSummary} ${styles.gestureRowInherited}`
+                        : styles.gestureRowSummary
+                    }
+                  >
+                    {summary}
+                  </span>
+                </span>
+                <span
+                  className={
+                    action
+                      ? `${styles.gestureDot} ${styles.gestureDotBound}`
+                      : inherited
+                        ? `${styles.gestureDot} ${styles.gestureDotInherited}`
+                        : styles.gestureDot
+                  }
+                  aria-hidden="true"
+                />
+                {modified ? (
+                  <span className={styles.modifiedMark} title="Unsaved change" aria-label="Unsaved change">
+                    ●
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={styles.detailPane} aria-label={selection ? `${selection.label} action` : "Action"}>
+          {!selection ? null : (
+            <>
+              <h3 className={styles.detailTitle}>{selection.label}</h3>
+
+              {inheritedAction ? (
+                <div className={styles.note}>
+                  Layer {layer} has no binding of its own here — layer 0's ({ACTION_SPECS[inheritedAction.type].label})
+                  applies until one is added.{" "}
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => {
+                      setDraft(selection, inheritedAction);
+                    }}
+                  >
+                    Override on layer {layer}
+                  </button>
+                </div>
+              ) : null}
+
+              <div className={styles.row}>
+                <label>Action</label>
+                <select
+                  value={activeAction?.type ?? ""}
+                  onChange={(e) => {
+                    setDraft(selection, buildAction(e.target.value as ActionType));
+                  }}
+                >
+                  <option value="" disabled>
+                    {activeAction ? "(bound)" : "Choose an action…"}
+                  </option>
+                  {GROUP_ORDER.filter((g) => groups.has(g)).map((g) => (
+                    <optgroup key={g} label={GROUP_LABELS[g]}>
+                      {(groups.get(g) ?? []).map((type) => (
+                        <option key={type} value={type}>
+                          {ACTION_SPECS[type].label}
+                          {implemented.has(type) ? "" : " (not implemented yet)"}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {activeAction && !implemented.has(activeAction.type) ? (
+                <div className={styles.note}>
+                  This daemon build has no handler for "{activeAction.type}" yet — the binding will be saved, but won't
+                  do anything until a future milestone registers one.
+                </div>
+              ) : null}
+              {activeAction && ACTION_SPECS[activeAction.type].note ? (
+                <div className={styles.note}>{ACTION_SPECS[activeAction.type].note}</div>
+              ) : null}
+              {hint ? (
+                <div className={styles.hint}>
+                  <span aria-hidden="true">ⓘ</span> {hint}
+                </div>
+              ) : null}
+
+              {activeAction ? (
+                <ActionParamsForm
+                  type={activeAction.type}
+                  params={activeAction.params}
+                  onChange={(nextParams) => {
+                    setDraft(selection, { type: activeAction.type, params: nextParams } as Action);
+                  }}
+                />
+              ) : (
+                <p className={styles.emptyState}>Nothing is bound to {selection.label.toLowerCase()} on this layer.</p>
+              )}
+
+              {activeAction ? (
+                <div className={styles.detailFooter}>
+                  <button
+                    type="button"
+                    className={styles.linkButtonDanger}
+                    onClick={() => {
+                      setDraft(selection, null);
+                    }}
+                  >
+                    Clear {selection.label.toLowerCase()}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </div>
 
       {error ? <div className={styles.error}>{error}</div> : null}
 
       <div className={styles.actions}>
-        <div>
-          {existing ? (
-            <button
-              type="button"
-              className={`${styles.button} ${styles.buttonDanger}`}
-              disabled={saving}
-              onClick={() => void handleDelete()}
-            >
-              Remove binding
-            </button>
-          ) : null}
-        </div>
-        <div className={styles.actionsRight}>
-          <button type="button" className={styles.button} onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className={`${styles.button} ${styles.buttonPrimary}`}
-            disabled={saving || !activeAction}
-            onClick={() => void handleSave()}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
+        {confirmingDiscard ? (
+          <>
+            <span className={styles.discardPrompt}>Discard {modifiedCount} unsaved change(s)?</span>
+            <div className={styles.actionsRight}>
+              <button
+                type="button"
+                className={styles.button}
+                onClick={() => {
+                  setConfirmingDiscard(false);
+                }}
+              >
+                Keep editing
+              </button>
+              <button type="button" className={`${styles.button} ${styles.buttonDanger}`} onClick={onClose}>
+                Discard
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className={styles.unsavedCount}>
+              {modifiedCount > 0 ? `${modifiedCount} unsaved change${modifiedCount === 1 ? "" : "s"}` : ""}
+            </span>
+            <div className={styles.actionsRight}>
+              <button type="button" className={styles.button} onClick={requestClose} disabled={saving}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`${styles.button} ${styles.buttonPrimary}`}
+                disabled={saving || modifiedCount === 0}
+                onClick={() => void commit()}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </Dialog>
   );

@@ -1,3 +1,229 @@
+/* Header: layer segmented control */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.headerLabel {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.layerTabs {
+  display: flex;
+  gap: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.layerTab {
+  min-width: 28px;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.layerTab:hover {
+  color: var(--color-text);
+}
+
+.layerTabActive {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.layerAdd {
+  min-width: 24px;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.layerAdd:hover {
+  color: var(--color-accent);
+}
+
+/* Two-pane body */
+
+.splitPane {
+  display: flex;
+  gap: var(--space-4);
+  min-height: 320px;
+}
+
+@media (max-width: 640px) {
+  .splitPane {
+    flex-direction: column;
+  }
+
+  .gestureList {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100% !important;
+  }
+
+  .gestureRow {
+    flex: 1 1 auto;
+    min-width: 140px;
+  }
+}
+
+.gestureList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 200px;
+  flex-shrink: 0;
+}
+
+.gestureRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-2);
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.gestureRow:hover {
+  background: var(--color-bg);
+}
+
+.gestureRowSelected {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border);
+  border-left-color: var(--color-accent);
+}
+
+.gestureRowEmpty .gestureRowSummary {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.gestureGlyph {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.gestureRowSelected .gestureGlyph {
+  color: var(--color-accent);
+}
+
+.gestureRowText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.gestureRowLabel {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.gestureRowSummary {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gestureRowInherited {
+  font-style: italic;
+}
+
+.gestureDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ctl-unbound);
+  background: transparent;
+}
+
+.gestureDotBound {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.gestureDotInherited {
+  border-style: dashed;
+  border-color: var(--color-text-muted);
+}
+
+.modifiedMark {
+  flex-shrink: 0;
+  color: var(--color-accent);
+  font-size: 8px;
+  line-height: 1;
+}
+
+.detailPane {
+  flex: 1;
+  min-width: 0;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--color-border);
+}
+
+@media (max-width: 640px) {
+  .detailPane {
+    padding-left: 0;
+    border-left: none;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+  }
+}
+
+.detailTitle {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+}
+
+.emptyState {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: var(--space-2) 0;
+}
+
+.detailFooter {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+
+/* Shared with Field.module.css's .row (duplicated intentionally --
+ * ActionParamsForm imports its own copy, and this file's rows are a
+ * different set of elements). */
+
 .row {
   margin-bottom: var(--space-3);
 }
@@ -28,8 +254,47 @@
   margin-bottom: var(--space-3);
 }
 
+.hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.linkButtonDanger {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-danger);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: 12px;
+  margin-top: var(--space-2);
+}
+
 .actions {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   margin-top: var(--space-4);
@@ -42,6 +307,16 @@
   gap: var(--space-2);
 }
 
+.unsavedCount {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.discardPrompt {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
 .button {
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
@@ -49,6 +324,9 @@
   background: var(--color-surface);
   cursor: pointer;
   font: inherit;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .buttonPrimary {
@@ -57,13 +335,21 @@
   border-color: var(--color-accent);
 }
 
+.buttonPrimary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .buttonDanger {
-  color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-accent-contrast);
   border-color: var(--color-danger);
 }
 
-.error {
-  color: var(--color-danger);
-  font-size: 12px;
-  margin-top: var(--space-2);
+@media (prefers-reduced-motion: reduce) {
+  .layerTab,
+  .gestureRow,
+  .button {
+    transition: none;
+  }
 }
