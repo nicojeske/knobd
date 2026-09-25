@@ -87,10 +87,14 @@ func (o SpotifyOptions) timeout() time.Duration {
 // spotifyJob is one queued Spotify action, captured at Execute time
 // (Invocation is only valid for the duration of the dispatch call that
 // produced it, so Run must not hold onto inv itself -- only what it
-// needs from it).
+// needs from it). delta carries inv.Delta -- the signed detent count for
+// a GestureTurn firing (see Invocation's doc comment) -- since
+// volumeAdjust needs it to know which way the knob turned; every other
+// action this handler set processes ignores it.
 type spotifyJob struct {
 	action  model.Action
 	control model.Control
+	delta   int
 }
 
 // SpotifyHandlers implements model.ActionSpotifyLikeToggle/
@@ -156,7 +160,7 @@ func (h *SpotifyHandlers) Register(r *Registry) {
 // inv and returns immediately, never touching the network on the
 // engine's dispatch goroutine.
 func (h *SpotifyHandlers) enqueue(ctx context.Context, inv Invocation) error {
-	job := spotifyJob{action: inv.Action, control: inv.Control}
+	job := spotifyJob{action: inv.Action, control: inv.Control, delta: inv.Delta}
 	select {
 	case h.jobs <- job:
 		return nil
@@ -229,7 +233,7 @@ func (h *SpotifyHandlers) runJob(parent context.Context, job spotifyJob) {
 	case model.SpotifyTransferPlaybackAction:
 		err = h.transferPlayback(ctx, a)
 	case model.SpotifyVolumeAdjustAction:
-		err = h.volumeAdjust(ctx, a)
+		err = h.volumeAdjust(ctx, a, job.delta)
 	case model.SpotifyVolumeSetAction:
 		err = h.volumeSet(ctx, a)
 	default:
@@ -340,17 +344,21 @@ func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyT
 		a.DeviceName, strings.Join(names, ", "))
 }
 
-// volumeAdjust adjusts the cached baseline by a.StepPercent and hands
-// the result to publishVolume -- it never itself waits on the
-// PUT /me/player/volume round trip (see runVolumeWriter), only
-// (occasionally) on the GET /me/player that seeds/refreshes the cache.
-// The baseline is re-fetched when unknown or stale (see
-// spotifyVolumeCacheTTL) rather than on every call, unlike
-// CurrentlyPlaying-backed actions (like_toggle etc.), which always read
-// fresh -- a knob spun quickly needs each detent to feel instant far
-// more than it needs to react to a volume change made from elsewhere
-// mid-spin.
-func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction) error {
+// volumeAdjust adjusts the cached baseline by a.StepPercent scaled by
+// delta -- the signed detent count for the GestureTurn that produced
+// this job (see spotifyJob's doc comment) -- and hands the result to
+// publishVolume. It never itself waits on the PUT /me/player/volume
+// round trip (see runVolumeWriter), only (occasionally) on the
+// GET /me/player that seeds/refreshes the cache. The baseline is
+// re-fetched when unknown or stale (see spotifyVolumeCacheTTL) rather
+// than on every call, unlike CurrentlyPlaying-backed actions
+// (like_toggle etc.), which always read fresh -- a knob spun quickly
+// needs each detent to feel instant far more than it needs to react to a
+// volume change made from elsewhere mid-spin.
+func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction, delta int) error {
+	if delta == 0 {
+		return nil
+	}
 	current, ok := h.cachedOrFetchVolume(ctx)
 	if !ok {
 		fresh, err := h.api.CurrentVolume(ctx)
@@ -359,7 +367,7 @@ func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolum
 		}
 		current = fresh
 	}
-	h.publishVolume(clampPercent(float64(current) + a.StepPercent))
+	h.publishVolume(clampPercent(float64(current) + a.StepPercent*float64(delta)))
 	return nil
 }
 

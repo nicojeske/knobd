@@ -274,6 +274,24 @@ developer application — see Risks):
   `actions.SpotifyOptions.OnVolumeApplied` (mirrors `VolumeOptions.
   OnApplied`'s role, calling `eng.NotifyLEDDirty()` on the same
   optimistic cache update, not on the `PUT`'s eventual completion).
+- **`spotify.volume_adjust` only ever increased, regardless of which way
+  the knob turned, until it clamped at 100 and stuck** -- found by
+  hand-testing. `SpotifyHandlers` doesn't execute on the engine's
+  dispatch goroutine like every other handler set (see
+  `spotifyQueueDepth`'s doc comment): `enqueue` captures what `Run`
+  needs from the `Invocation` into a `spotifyJob` and returns
+  immediately, and that capture simply dropped `Invocation.Delta` --
+  the signed detent count a `GestureTurn` carries, which every other
+  turn-driven handler (`VolumeHandlers.executeAdjust`) multiplies its
+  own step by. `volumeAdjust` was always adding the raw, usually-
+  positive `StepPercent` with no sign applied. `spotify.volume_set`
+  (a button binding, no `Delta` involved) was unaffected, which is why
+  it kept working as a workaround. Fixed by adding `spotifyJob.delta`,
+  threading `inv.Delta` through `enqueue`, and scaling
+  `StepPercent*float64(delta)` in `volumeAdjust`, matching
+  `executeAdjust`'s pattern (plus a `delta == 0` no-op guard). See
+  `TestSpotifyVolumeAdjustHonorsTurnDirection`/
+  `TestSpotifyVolumeAdjustZeroDeltaIsNoop`.
 - **`spotify.Service.Login` takes no `ctx` parameter, deliberately** --
   found by hand-testing the real flow: `api`'s `handleSpotifyLogin`
   originally threaded `r.Context()` (POST /spotify/login's own request

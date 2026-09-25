@@ -113,7 +113,15 @@ var _ SpotifyAPI = (*fakeSpotifyAPI)(nil)
 // once runJob has finished -- so tests don't need to poll or sleep.
 func runOne(t *testing.T, h *SpotifyHandlers, action model.Action) {
 	t.Helper()
-	if err := h.enqueue(context.Background(), Invocation{Action: action}); err != nil {
+	runOneDelta(t, h, action, 0)
+}
+
+// runOneDelta is runOne with an explicit Invocation.Delta -- the signed
+// detent count a real GestureTurn carries -- for the one action
+// (SpotifyVolumeAdjustAction) that actually reads it.
+func runOneDelta(t *testing.T, h *SpotifyHandlers, action model.Action, delta int) {
+	t.Helper()
+	if err := h.enqueue(context.Background(), Invocation{Action: action, Delta: delta}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 	select {
@@ -231,10 +239,39 @@ func TestSpotifyVolumeAdjustAddsStepToCurrent(t *testing.T) {
 	api := &fakeSpotifyAPI{volume: 40}
 	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
 
-	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
+	runOneDelta(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5}, 1)
 
 	if pct, ok := h.CachedVolumePercent(); !ok || pct != 45 {
 		t.Errorf("CachedVolumePercent = %v, %v, want 45, true", pct, ok)
+	}
+}
+
+// TestSpotifyVolumeAdjustHonorsTurnDirection is a regression test for a
+// bug where volumeAdjust always added StepPercent regardless of which
+// way the knob turned (Invocation.Delta was captured at enqueue time but
+// never read), so the level only ever climbed to 100 and stuck there.
+// A negative Delta (the CCW direction) must subtract, not add.
+func TestSpotifyVolumeAdjustHonorsTurnDirection(t *testing.T) {
+	api := &fakeSpotifyAPI{volume: 40}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	runOneDelta(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5}, -1)
+
+	if pct, ok := h.CachedVolumePercent(); !ok || pct != 35 {
+		t.Errorf("CachedVolumePercent = %v, %v, want 35, true", pct, ok)
+	}
+}
+
+// TestSpotifyVolumeAdjustZeroDeltaIsNoop guards against a GestureTurn
+// job that somehow carries a zero Delta ever nudging the volume.
+func TestSpotifyVolumeAdjustZeroDeltaIsNoop(t *testing.T) {
+	api := &fakeSpotifyAPI{volume: 40}
+	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
+
+	runOneDelta(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5}, 0)
+
+	if _, ok := h.CachedVolumePercent(); ok {
+		t.Errorf("CachedVolumePercent became known on a zero-delta adjust, want untouched")
 	}
 }
 
@@ -242,7 +279,7 @@ func TestSpotifyVolumeAdjustClampsToRange(t *testing.T) {
 	api := &fakeSpotifyAPI{volume: 98}
 	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
 
-	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 10})
+	runOneDelta(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 10}, 1)
 
 	if pct, ok := h.CachedVolumePercent(); !ok || pct != 100 {
 		t.Errorf("CachedVolumePercent = %v, %v, want 100, true", pct, ok)
@@ -257,9 +294,9 @@ func TestSpotifyVolumeAdjustReusesCacheWithoutRefetching(t *testing.T) {
 	api := &fakeSpotifyAPI{volume: 40}
 	h := NewSpotifyHandlers(api, &media.FakeNotifier{}, SpotifyOptions{})
 
-	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
+	runOneDelta(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5}, 1)
 	api.volume = 999 // if a second adjust re-fetches, it'll pick this up
-	runOne(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5})
+	runOneDelta(t, h, model.SpotifyVolumeAdjustAction{StepPercent: 5}, 1)
 
 	if pct, ok := h.CachedVolumePercent(); !ok || pct != 50 {
 		t.Errorf("CachedVolumePercent = %v, %v, want 50 (cache reused, not refetched)", pct, ok)
@@ -290,7 +327,7 @@ func TestSpotifyVolumeWriterAppliesLatestPending(t *testing.T) {
 	go h.Run(ctx)
 
 	for i := 0; i < 5; i++ {
-		if err := h.enqueue(context.Background(), Invocation{Action: model.SpotifyVolumeAdjustAction{StepPercent: 10}}); err != nil {
+		if err := h.enqueue(context.Background(), Invocation{Action: model.SpotifyVolumeAdjustAction{StepPercent: 10}, Delta: 1}); err != nil {
 			t.Fatalf("enqueue: %v", err)
 		}
 	}

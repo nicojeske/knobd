@@ -831,7 +831,7 @@ func (h *SpotifyHandlers) runJob(parent context.Context, job spotifyJob)
 func (h *SpotifyHandlers) runVolumeWriter(ctx context.Context)
 func (h *SpotifyHandlers) startPlaylist(ctx context.Context, a model.SpotifyStartPlaylistAction) error
 func (h *SpotifyHandlers) transferPlayback(ctx context.Context, a model.SpotifyTransferPlaybackAction) error
-func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction) error
+func (h *SpotifyHandlers) volumeAdjust(ctx context.Context, a model.SpotifyVolumeAdjustAction, delta int) error
 func (h *SpotifyHandlers) volumeSet(ctx context.Context, a model.SpotifyVolumeSetAction) error
 ```
 
@@ -1101,12 +1101,16 @@ type soloSession struct {
 spotifyJob is one queued Spotify action, captured at Execute time
 (Invocation is only valid for the duration of the dispatch call that
 produced it, so Run must not hold onto inv itself -- only what it
-needs from it).
+needs from it). delta carries inv.Delta -- the signed detent count for
+a GestureTurn firing (see Invocation's doc comment) -- since
+volumeAdjust needs it to know which way the knob turned; every other
+action this handler set processes ignores it.
 
 ```go
 type spotifyJob struct {
 	action  model.Action
 	control model.Control
+	delta   int
 }
 ```
 
@@ -1190,7 +1194,9 @@ func TestSpotifyTransferPlaybackMatchesByName(t *testing.T)
 func TestSpotifyTransferPlaybackUnknownDevice(t *testing.T)
 func TestSpotifyVolumeAdjustAddsStepToCurrent(t *testing.T)
 func TestSpotifyVolumeAdjustClampsToRange(t *testing.T)
+func TestSpotifyVolumeAdjustHonorsTurnDirection(t *testing.T)
 func TestSpotifyVolumeAdjustReusesCacheWithoutRefetching(t *testing.T)
+func TestSpotifyVolumeAdjustZeroDeltaIsNoop(t *testing.T)
 func TestSpotifyVolumeSet(t *testing.T)
 func TestSpotifyVolumeWriterAppliesLatestPending(t *testing.T)
 func TestUserFacingSpotifyErrorMapsSentinels(t *testing.T)
@@ -1222,6 +1228,7 @@ func nextRepeatStatus(status string) string
 func push(index int) model.Control
 func refSetEqual(a, b []audio.Ref) bool
 func runOne(t *testing.T, h *SpotifyHandlers, action model.Action)
+func runOneDelta(t *testing.T, h *SpotifyHandlers, action model.Action, delta int)
 func seedBackend(t *testing.T, refs map[audio.Ref]audio.VolumeState) *audio.FakeBackend
 func slugify(s string) string
 func trackSummary(t spotify.CurrentTrack) string
