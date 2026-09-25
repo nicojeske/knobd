@@ -100,7 +100,7 @@ func TestGestureMachinePressVsHold(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newGestureMachine(testHold, testWindow, nil)
+			m := newGestureMachine(testHold, testWindow, nil, nil)
 			got := run(m, tc.steps)
 			if !gestureEqual(got, tc.want) {
 				t.Errorf("got %+v, want %+v", got, tc.want)
@@ -191,7 +191,7 @@ func TestGestureMachineDoublePress(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newGestureMachine(testHold, testWindow, tc.deferPress)
+			m := newGestureMachine(testHold, testWindow, tc.deferPress, nil)
 			got := run(m, tc.steps)
 			if !gestureEqual(got, tc.want) {
 				t.Errorf("got %+v, want %+v", got, tc.want)
@@ -203,7 +203,7 @@ func TestGestureMachineDoublePress(t *testing.T) {
 func TestGestureMachineTurnAndMove(t *testing.T) {
 	enc1 := model.Control{Kind: model.ControlEncoder, Index: 1}
 	fader := model.Control{Kind: model.ControlFader, Index: 1}
-	m := newGestureMachine(testHold, testWindow, nil)
+	m := newGestureMachine(testHold, testWindow, nil, nil)
 
 	got := m.Handle(device.Event{Control: enc1, Kind: device.EventTurn, Delta: 3, Time: time.Unix(0, 0)})
 	want := []gesture{{Control: enc1, Gesture: model.GestureTurn, Delta: 3}}
@@ -221,7 +221,7 @@ func TestGestureMachineTurnAndMove(t *testing.T) {
 func TestGestureMachineNextDeadline(t *testing.T) {
 	t0 := time.Unix(0, 0)
 	push2 := model.Control{Kind: model.ControlEncoderPush, Index: 2}
-	m := newGestureMachine(testHold, testWindow, nil)
+	m := newGestureMachine(testHold, testWindow, nil, nil)
 
 	if _, ok := m.NextDeadline(); ok {
 		t.Fatal("NextDeadline() ok = true with nothing in flight")
@@ -240,8 +240,59 @@ func TestGestureMachineNextDeadline(t *testing.T) {
 	}
 }
 
+func TestGestureMachineDetectHold(t *testing.T) {
+	t0 := time.Unix(0, 0)
+	never := func(model.Control) bool { return false }
+	always := func(model.Control) bool { return true }
+
+	cases := []struct {
+		name       string
+		detectHold func(model.Control) bool
+		steps      []step
+		want       []gesture
+	}{
+		{
+			"nil detectHold matches today's behavior: 900ms held is a hold",
+			nil,
+			[]step{down(push1, t0), tick(t0.Add(900 * time.Millisecond))},
+			[]gesture{{Control: push1, Gesture: model.GestureHold}},
+		},
+		{
+			"detectHold false: 900ms held then released is still a plain press, no hold",
+			never,
+			[]step{down(push1, t0), tick(t0.Add(900 * time.Millisecond)), up(push1, t0.Add(1000*time.Millisecond))},
+			[]gesture{{Control: push1, Gesture: model.GesturePress}},
+		},
+		{
+			"detectHold true: same as nil",
+			always,
+			[]step{down(push1, t0), tick(t0.Add(900 * time.Millisecond))},
+			[]gesture{{Control: push1, Gesture: model.GestureHold}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newGestureMachine(testHold, testWindow, nil, tc.detectHold)
+			got := run(m, tc.steps)
+			if !gestureEqual(got, tc.want) {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGestureMachineDetectHoldExcludedFromNextDeadline(t *testing.T) {
+	t0 := time.Unix(0, 0)
+	m := newGestureMachine(testHold, testWindow, nil, func(model.Control) bool { return false })
+	m.Handle(device.Event{Control: push1, Kind: device.EventButtonDown, Time: t0})
+	if _, ok := m.NextDeadline(); ok {
+		t.Error("NextDeadline() ok = true for a control that will never detect a hold")
+	}
+}
+
 func TestGestureMachineReset(t *testing.T) {
-	m := newGestureMachine(testHold, testWindow, nil)
+	m := newGestureMachine(testHold, testWindow, nil, nil)
 	m.Handle(device.Event{Control: push1, Kind: device.EventButtonDown, Time: time.Unix(0, 0)})
 	if _, ok := m.NextDeadline(); !ok {
 		t.Fatal("expected a pending deadline before Reset")

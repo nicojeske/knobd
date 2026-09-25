@@ -3268,6 +3268,13 @@ type bindingIndex struct {
 	// defer that control's plain presses (see gestureMachine's doc
 	// comment).
 	doubleBound map[model.Control]bool
+	// holdBound records every control with a GestureHold or
+	// GestureRelease binding on any layer, which is what tells the
+	// gesture machine to actually detect a hold for that control (see
+	// gestureMachine's detectHold field). A control with neither fires
+	// GesturePress on a long press same as a short one, instead of
+	// silently dropping it.
+	holdBound map[model.Control]bool
 	// maxLayer is the highest Layer any binding in this profile lives
 	// on, 0 if none do. It is LayerCycleAction's default wrap-around
 	// bound when the action carries no explicit LayerOrder (see
@@ -3281,6 +3288,7 @@ methods:
 ```go
 func (ix *bindingIndex) activeBindings(layer int) []activeBinding
 func (ix *bindingIndex) deferPress(c model.Control) bool
+func (ix *bindingIndex) detectHold(c model.Control) bool
 func (ix *bindingIndex) lookup(layer int, c model.Control, g model.Gesture) (model.Action, bool)
 ```
 
@@ -3376,6 +3384,17 @@ type gestureMachine struct {
 	// never producing GestureDoublePress for that control (which is
 	// harmless: nothing binds it). nil means never defer.
 	deferPress func(model.Control) bool
+	// detectHold reports whether c has a hold or release binding on any
+	// layer, and therefore must have a long press actually turned into
+	// GestureHold at the hold threshold. A control with neither instead
+	// keeps accumulating toward GesturePress/GestureDoublePress no
+	// matter how long it's held, so a long press on a press-only control
+	// still fires the press on release rather than being silently
+	// dropped. nil means always detect (the opposite default from
+	// deferPress, since detecting a hold that's never bound is harmless
+	// — it's exactly today's behavior — while deferring a press that's
+	// never bound to double_press is the one that must default off).
+	detectHold func(model.Control) bool
 
 	down      map[model.Control]*pressState
 	lastPress map[model.Control]time.Time
@@ -3761,6 +3780,7 @@ func InlineActionTypes() []model.ActionType
 func TestBindingIndexDoubleBoundDerivation(t *testing.T)
 func TestBindingIndexDuplicateKeyLastWins(t *testing.T)
 func TestBindingIndexEmptyActiveProfile(t *testing.T)
+func TestBindingIndexHoldBoundDerivation(t *testing.T)
 func TestBindingIndexInvalidBindingSkipped(t *testing.T)
 func TestBindingIndexLookupFallsBackToLayer0(t *testing.T)
 func TestBindingIndexMaxLayer(t *testing.T)
@@ -3784,12 +3804,14 @@ func TestEngineRunEncoderTurnAdjustsVolume(t *testing.T)
 func TestEngineRunFaderMoveSetsAbsoluteVolume(t *testing.T)
 func TestEngineRunFocusChangeUpdatesTargetFocusedRefs(t *testing.T)
 func TestEngineRunGroupBindingControlsEveryMatcherSimultaneously(t *testing.T)
+func TestEngineRunLEDButtonLightsWhenMappedRegardlessOfAction(t *testing.T)
 func TestEngineRunLEDButtonTracksMute(t *testing.T)
 func TestEngineRunLEDRateLimitingCollapsesBurst(t *testing.T)
 func TestEngineRunLEDRingTracksVolume(t *testing.T)
 func TestEngineRunLEDUnboundRingIsBlank(t *testing.T)
 func TestEngineRunLatchTogglesLayer(t *testing.T)
 func TestEngineRunLayerCycleAdvancesWithNoExplicitOrder(t *testing.T)
+func TestEngineRunLongPressWithNoHoldBindingStillFiresPress(t *testing.T)
 func TestEngineRunMomentaryLayerSwitchesOnDownAndRevertsOnRelease(t *testing.T)
 func TestEngineRunMomentaryPinsGestureToDownTimeLayer(t *testing.T)
 func TestEngineRunPressVsHold(t *testing.T)
@@ -3797,6 +3819,8 @@ func TestEngineRunRepaintLEDsForcesFullRewrite(t *testing.T)
 func TestEngineRunSceneApplyAndSaveEndToEnd(t *testing.T)
 func TestEngineRunSetConfigTakesEffect(t *testing.T)
 func TestEngineRunSoloTogglesEndToEnd(t *testing.T)
+func TestGestureMachineDetectHold(t *testing.T)
+func TestGestureMachineDetectHoldExcludedFromNextDeadline(t *testing.T)
 func TestGestureMachineDoublePress(t *testing.T)
 func TestGestureMachineNextDeadline(t *testing.T)
 func TestGestureMachinePressVsHold(t *testing.T)

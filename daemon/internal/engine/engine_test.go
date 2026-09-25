@@ -260,6 +260,50 @@ func TestEngineRunPressVsHold(t *testing.T) {
 	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 0, Time: downAt.Add(HoldThreshold).Add(10 * time.Millisecond)}) // release
 }
 
+// TestEngineRunLongPressWithNoHoldBindingStillFiresPress covers the
+// hold-detection refinement in bindings.go/gesture.go: a control with
+// only a press binding (no hold, no release) must still fire that press
+// on release, however long it was held -- it must never silently drop
+// the input just because the hold threshold came and went with nothing
+// bound to hold.
+func TestEngineRunLongPressWithNoHoldBindingStillFiresPress(t *testing.T) {
+	push1 := model.Control{Kind: model.ControlEncoderPush, Index: 1}
+	sinkRef := audio.Ref{Kind: audio.RefSink, ID: "sink1"}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: push1, Gesture: model.GesturePress,
+					Action: model.VolumeSetAction{Target: model.Target{Kind: model.TargetDefaultSink}, Percent: 10}},
+			},
+		}},
+	}
+
+	clk := newTestClock(time.Unix(0, 0))
+	e, port, backend := newTestEngine(cfg, clk)
+	backend.Seed([]audio.Device{{ID: "sink1", IsDefault: true}}, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runEngine(t, e, ctx)
+
+	waitForResolved(t, e, push1, model.GesturePress)
+
+	t0 := clk.Now()
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 127, Time: t0}) // down
+	// Advance well past HoldThreshold with nothing bound to hold/release
+	// for this control: the loop must never treat this as a hold, since
+	// bindingIndex.detectHold(push1) is false here.
+	clk.Advance(2 * HoldThreshold)
+	mustInject(t, ctx, port, midi.Message{Status: 0x90, Data1: 32, Data2: 0, Time: t0.Add(2 * HoldThreshold)}) // up, well past the threshold
+
+	waitFor(t, 2*time.Second, func() bool {
+		st, err := backend.GetVolume(context.Background(), sinkRef)
+		return err == nil && st.Percent == 10
+	})
+}
+
 // TestEngineRunDecodeErrorIsNonFatal covers the Codec.Decode contract:
 // a message legal-but-out-of-mode (here, channel 2 CC, which
 // xtouchMiniCodec rejects as ErrStandardMode) must be logged and

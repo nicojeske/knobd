@@ -26,6 +26,17 @@ implementation:
   action. This *is* a data model change (see below), which contradicts
   this spec's original "Data model changes: none expected" — recorded
   here rather than silently dropped.
+- **`GestureHold` is only detected for a control with a `hold` or
+  `release` binding on any layer** (`bindingIndex.detectHold`,
+  `gestureMachine.detectHold` in `daemon/internal/engine`) — the same
+  refinement `GestureDoublePress`'s `deferPress` already had. Before
+  this, a control bound only to `press` silently dropped a long press:
+  `HoldThreshold` always turned it into an (unbound, and therefore
+  discarded) `GestureHold`. Now it's only ever detected when something
+  is actually bound to receive it, so a press-only control's slow press
+  still fires `press` on release however long it was held. This is what
+  makes per-gesture assignment (press vs. long press vs. double press,
+  each its own action) usable in practice, not just representable.
 
 ## Depends on
 

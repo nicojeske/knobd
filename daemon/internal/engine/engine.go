@@ -243,7 +243,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	// must never snap the user back to layer 0 -- only actually
 	// switching profiles does (see the configCh case below).
 	activeProfileID := cfg.ActiveProfileID
-	gestures := newGestureMachine(HoldThreshold, DoublePressWindow, bindings.deferPress)
+	gestures := newGestureMachine(HoldThreshold, DoublePressWindow, bindings.deferPress, bindings.detectHold)
 	res := newResolver(proctree.Walker{Root: e.deps.ProcRoot}, e.log)
 	res.setConfig(cfg)
 	layers := &layerState{}
@@ -538,6 +538,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			cfg = req.cfg
 			bindings = newBindingIndex(cfg, e.log)
 			gestures.deferPress = bindings.deferPress
+			gestures.detectHold = bindings.detectHold
 			res.setConfig(cfg)
 			// A layer switch is a live-session concern, not config (see
 			// layerState's doc comment) -- an unrelated edit to the same

@@ -27,6 +27,13 @@ type bindingIndex struct {
 	// defer that control's plain presses (see gestureMachine's doc
 	// comment).
 	doubleBound map[model.Control]bool
+	// holdBound records every control with a GestureHold or
+	// GestureRelease binding on any layer, which is what tells the
+	// gesture machine to actually detect a hold for that control (see
+	// gestureMachine's detectHold field). A control with neither fires
+	// GesturePress on a long press same as a short one, instead of
+	// silently dropping it.
+	holdBound map[model.Control]bool
 	// maxLayer is the highest Layer any binding in this profile lives
 	// on, 0 if none do. It is LayerCycleAction's default wrap-around
 	// bound when the action carries no explicit LayerOrder (see
@@ -43,6 +50,7 @@ func newBindingIndex(cfg model.Config, log *slog.Logger) *bindingIndex {
 	ix := &bindingIndex{
 		byKey:       make(map[bindingKey]model.Action),
 		doubleBound: make(map[model.Control]bool),
+		holdBound:   make(map[model.Control]bool),
 	}
 
 	var profile *model.Profile
@@ -74,6 +82,9 @@ func newBindingIndex(cfg model.Config, log *slog.Logger) *bindingIndex {
 		if b.Gesture == model.GestureDoublePress {
 			ix.doubleBound[b.Control] = true
 		}
+		if b.Gesture == model.GestureHold || b.Gesture == model.GestureRelease {
+			ix.holdBound[b.Control] = true
+		}
 		if b.Layer > ix.maxLayer {
 			ix.maxLayer = b.Layer
 		}
@@ -100,6 +111,14 @@ func (ix *bindingIndex) lookup(layer int, c model.Control, g model.Gesture) (mod
 // layer, for gestureMachine's deferPress predicate.
 func (ix *bindingIndex) deferPress(c model.Control) bool {
 	return ix.doubleBound[c]
+}
+
+// detectHold reports whether c has a GestureHold or GestureRelease
+// binding on any layer, for gestureMachine's detectHold predicate. A
+// control with neither never has its press turned into a hold, however
+// long it's held -- see gestureMachine's doc comment.
+func (ix *bindingIndex) detectHold(c model.Control) bool {
+	return ix.holdBound[c]
 }
 
 // activeBinding is one (control, gesture) resolved against a specific

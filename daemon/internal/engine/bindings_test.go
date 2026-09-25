@@ -96,6 +96,32 @@ func TestBindingIndexDoubleBoundDerivation(t *testing.T) {
 	}
 }
 
+func TestBindingIndexHoldBoundDerivation(t *testing.T) {
+	push2 := model.Control{Kind: model.ControlEncoderPush, Index: 2}
+	push3 := model.Control{Kind: model.ControlEncoderPush, Index: 3}
+	cfg := model.Config{
+		ActiveProfileID: "default",
+		Profiles: []model.Profile{{
+			ID: "default",
+			Bindings: []model.Binding{
+				{Layer: 0, Control: push1, Gesture: model.GesturePress, Action: model.VolumeMuteToggleAction{Target: model.Target{Kind: model.TargetFocused}}},
+				{Layer: 0, Control: push2, Gesture: model.GestureHold, Action: model.AudioDuckHoldAction{Target: model.Target{Kind: model.TargetFocused}, DuckPercent: 20}},
+				{Layer: 1, Control: push3, Gesture: model.GestureRelease, Action: model.KnobClearAction{}},
+			},
+		}},
+	}
+	ix := newBindingIndex(cfg, discardLogger())
+	if ix.detectHold(push1) {
+		t.Error("push1 has only a press binding; should not detect hold")
+	}
+	if !ix.detectHold(push2) {
+		t.Error("push2 has a hold binding on layer 0; should detect hold")
+	}
+	if !ix.detectHold(push3) {
+		t.Error("push3 has a release binding on layer 1; should detect hold regardless of active layer")
+	}
+}
+
 func TestBindingIndexEmptyActiveProfile(t *testing.T) {
 	cfg := model.Config{ActiveProfileID: "", Profiles: []model.Profile{{ID: "default"}}}
 	ix := newBindingIndex(cfg, discardLogger())

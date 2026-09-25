@@ -60,6 +60,17 @@ type gestureMachine struct {
 	// never producing GestureDoublePress for that control (which is
 	// harmless: nothing binds it). nil means never defer.
 	deferPress func(model.Control) bool
+	// detectHold reports whether c has a hold or release binding on any
+	// layer, and therefore must have a long press actually turned into
+	// GestureHold at the hold threshold. A control with neither instead
+	// keeps accumulating toward GesturePress/GestureDoublePress no
+	// matter how long it's held, so a long press on a press-only control
+	// still fires the press on release rather than being silently
+	// dropped. nil means always detect (the opposite default from
+	// deferPress, since detecting a hold that's never bound is harmless
+	// — it's exactly today's behavior — while deferring a press that's
+	// never bound to double_press is the one that must default off).
+	detectHold func(model.Control) bool
 
 	down      map[model.Control]*pressState
 	lastPress map[model.Control]time.Time
@@ -68,9 +79,11 @@ type gestureMachine struct {
 
 // newGestureMachine returns a gestureMachine ready to receive events. A
 // nil deferPress means every press fires immediately and
-// GestureDoublePress is never produced.
-func newGestureMachine(hold, doubleWindow time.Duration, deferPress func(model.Control) bool) *gestureMachine {
-	m := &gestureMachine{hold: hold, doubleWindow: doubleWindow, deferPress: deferPress}
+// GestureDoublePress is never produced. A nil detectHold means every
+// control held past hold fires GestureHold (today's behavior, before
+// per-control hold detection existed).
+func newGestureMachine(hold, doubleWindow time.Duration, deferPress, detectHold func(model.Control) bool) *gestureMachine {
+	m := &gestureMachine{hold: hold, doubleWindow: doubleWindow, deferPress: deferPress, detectHold: detectHold}
 	m.Reset()
 	return m
 }
@@ -145,6 +158,13 @@ func (m *gestureMachine) Tick(now time.Time) []gesture {
 		if ps.holdDelivered || now.Before(ps.downAt.Add(m.hold)) {
 			continue
 		}
+		if m.detectHold != nil && !m.detectHold(c) {
+			// Nothing is bound to this control's hold/release: leave it
+			// accumulating in m.down rather than marking holdDelivered,
+			// so handleUp still sees an ordinary (possibly long) press
+			// on release instead of dropping it.
+			continue
+		}
 		ps.holdDelivered = true
 		// A control that reaches the hold threshold can never turn out
 		// to have been the first half of a double press.
@@ -173,8 +193,8 @@ func (m *gestureMachine) NextDeadline() (deadline time.Time, ok bool) {
 			deadline, ok = t, true
 		}
 	}
-	for _, ps := range m.down {
-		if !ps.holdDelivered {
+	for c, ps := range m.down {
+		if !ps.holdDelivered && (m.detectHold == nil || m.detectHold(c)) {
 			consider(ps.downAt.Add(m.hold))
 		}
 	}
